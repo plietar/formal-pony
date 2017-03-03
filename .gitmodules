@@ -1,0 +1,3 @@
+[submodule "tlc"]
+	path = tlc
+	url = https://gforge.inria.fr/git/tlc/tlc.git
