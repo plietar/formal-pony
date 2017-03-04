@@ -2,15 +2,24 @@ Require Import Coq.Strings.String.
 Require Import Coq.Lists.List.
 
 Inductive expr : Type :=
+| expr_temp : nat -> expr
+| expr_seq : expr -> expr -> expr
+| expr_recover : expr -> expr
+| expr_local : string -> expr
+| expr_assign_local : string -> expr -> expr
+.
+
+(*
+Inductive expr : Type :=
 | expr_this : expr
 | expr_var : string -> expr
 | expr_assign_var : string -> expr -> expr
-| expr_seq : expr -> expr -> expr
 | expr_field : expr -> string -> expr
 | expr_assign_field : expr -> string -> expr -> expr
-| expr_recover : expr -> expr
 | expr_call : expr -> string -> list expr -> expr
 
+| expr_seq : expr -> expr -> expr
+| expr_recover : expr -> expr
 | expr_null : expr
 | expr_term : nat -> expr
 .
@@ -36,3 +45,17 @@ Inductive def : Type :=
 .
 
 Inductive program : Type := Program : list def -> program.
+*)
+
+
+
+
+
+
+
+
+
+
+
+
+

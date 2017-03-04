@@ -11,7 +11,9 @@ TLC_VO=$(TLC_SRC:.v=.vo)
 SRC=\
     src/Ast.v \
     src/Eval.v \
-    src/main.v
+    src/Semantics.v \
+    src/Store.v \
+#    src/main.v
 
 VO=$(SRC:.v=.vo)
 
