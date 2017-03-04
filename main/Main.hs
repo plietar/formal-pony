@@ -1,59 +1,73 @@
 {-# LANGUAGE StandaloneDeriving #-}
 
-import System.IO
-import Control.Monad
-import Text.ParserCombinators.Parsec hiding (State)
-import Text.ParserCombinators.Parsec.Expr
-import Text.ParserCombinators.Parsec.Language
-import qualified Text.ParserCombinators.Parsec.Token as Token
 import Control.Monad.State.Lazy
+import Control.Monad.Except
+import Data.Char
+import System.IO
+import Text.Parsec (parse)
+import Text.Parsec.Combinator (eof)
 
 import Ast
-import Semantics (Coq_heap, Coq_frame, Coq_local_id(..), Coq_value(..))
+import Entities (Coq_heap, Coq_frame, Coq_local_id(..), Coq_value(..))
 import Eval
 import Extract (init)
+import Parser (expr)
 
 deriving instance Show Coq_value
 deriving instance Show Coq_local_id
+deriving instance Eq Coq_local_id
 deriving instance Show Coq_expr
 
-languageDef =
-   emptyDef { Token.commentStart    = "/*"
-            , Token.commentEnd      = "*/"
-            , Token.commentLine     = "//"
-            , Token.identStart      = letter
-            , Token.identLetter     = alphaNum
-            , Token.reservedNames   = [ "recover" ]
-            , Token.reservedOpNames = [ "=", ".", ";" ]
-            }
+type ST = (Coq_heap, Coq_frame)
+type Repl = StateT ST (ExceptT String IO)
 
-lexer = Token.makeTokenParser languageDef
-identifier = Token.identifier lexer
-reserved = Token.reserved lexer
-reservedOp = Token.reservedOp lexer
-parens = Token.parens lexer
-whiteSpace = Token.whiteSpace lexer
-
-operators = [ [Infix (reservedOp ";" >> return Coq_expr_seq) AssocLeft ] ]
-
-term :: Parser Coq_expr
-term = parens expr
-       <|> Coq_expr_assign_local <$> try (identifier <* (reservedOp "=")) <*> expr
-       <|> Coq_expr_local <$> identifier
-
-expr :: Parser Coq_expr
-expr = buildExpressionParser operators term
-
-type Ctx = State (Coq_heap, Coq_frame)
-
-replOne :: String -> (Coq_heap, Coq_frame) -> ([String], (Coq_heap, Coq_frame))
-replOne contents (heap, frame) = ([show temp, show frame], (heap', frame'))
+gc :: Repl ()
+gc = modify gc'
   where
-    Right e = parse (whiteSpace >> expr <* eof ) "" contents
-    ((heap', frame'), temp) = eval heap frame e
-    
-repl :: [String] -> [String]
-repl contents = concat $ evalState (mapM (state . replOne) contents) Extract.init
+    gc' (heap, frame) = (heap, filter (isSourceId . fst) frame)
+    isSourceId (SourceId _) = True
+    isSourceId (TempId _) = False
+
+parser :: String -> Repl Coq_expr
+parser line = case parse (expr <* eof) "<interactive>" line of
+  Right e -> return e
+  Left err -> throwError (show err)
+
+command :: String -> String -> Repl ()
+command "heap"  _ = gets fst >>= liftIO . print
+command "frame" _ = gets snd >>= liftIO . print
+command "clear" _ = put Extract.init
+command "gc" _ = gc
+command "parse" line = parser line >>= liftIO . print
+
+repl :: String -> Repl ()
+repl (':':line) =
+  let (c, rest) = break isSpace line in
+  command c (dropWhile isSpace rest)
+
+repl line = do
+  e <- parser line
+  (heap, frame) <- get
+  let ((heap', frame'), temp) = eval heap frame e
+  case lookup (TempId temp) frame' of
+    Just Coq_v_null -> liftIO (putStrLn "null")
+    Just (Coq_v_addr addr) ->
+      let (Just object) = lookup addr heap'
+      in liftIO (print object)
+
+  put (heap', frame')
+
+  gc
+
+replMany :: Repl ()
+replMany = forever $ do
+  liftIO (putStr "> " >> hFlush stdout)
+  line <- liftIO getLine
+  catchError (repl line) (\err -> liftIO (putStrLn err))
 
 main :: IO ()
-main = interact (unlines . repl . lines)
+main = do
+  result <- runExceptT (evalStateT replMany Extract.init)
+  case result of
+    Left err -> putStrLn ("Fatal error:" ++ err)
+    Right () -> return ()

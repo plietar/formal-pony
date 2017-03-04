@@ -10,6 +10,7 @@ Require Import Coq.Arith.EqNat.
 
 Require Import Ast.
 Require Import Semantics.
+Require Import Entities.
 Require Import Store.
 
 Fixpoint eval (h: heap) (f: frame) (e: expr) : heap * frame * nat :=
@@ -28,6 +29,35 @@ Fixpoint eval (h: heap) (f: frame) (e: expr) : heap * frame * nat :=
       let f'' := Frame.set f' (TempId t') (Frame.get f' (SourceId name)) in
       let f''' := Frame.set f'' (SourceId name) (Frame.get f' (TempId t)) in
       (h', f''', t')
+
+  | expr_field e name =>
+      let '(h', f', t) := eval h f e in
+      match Frame.get f' (TempId t) with
+      | v_addr addr =>
+        let t' := Frame.alloc_temp f' in
+        let value := Heap.get_field h' addr name in
+        let f'' := Frame.set f' (TempId t') value in
+
+        (h', f'', t')
+      | v_null => (h', f', t)
+      end
+
+  | expr_assign_field e name e' =>
+      let '(h', f', t) := eval h f e in
+      let '(h'', f'', t') := eval h' f' e' in
+
+      match Frame.get f'' (TempId t) with
+      | v_addr addr =>
+        let t''' := Frame.alloc_temp f'' in
+        let old_value := Heap.get_field h'' addr name in
+        let value := Frame.get f'' (TempId t') in
+
+        let h''' := Heap.set_field h'' addr name value in
+        let f''' := Frame.set f'' (TempId t''') old_value in
+
+        (h''', f''', t''')
+      | v_null => (h'', f'', t)
+      end
 
   | expr_seq e1 e2 =>
       let '(h', f', _) := eval h f e1

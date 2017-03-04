@@ -1,61 +1,6 @@
-Require Import Coq.Arith.EqNat.
-Require Import Coq.Strings.String.
-
 Require Import Ast.
 Require Import Store.
-
-Definition addr := nat.
-Module addr_eq.
-  Definition t := addr.
-  Definition eqb x y : bool := beq_nat x y.
-End addr_eq.
-
-Definition object := string.
-Definition actor := string.
-
-Module heap_default.
-  Definition t : Type := actor + object.
-  Definition default : t := inl EmptyString.
-End heap_default.
-
-Module Heap.
-  Include Store addr_eq heap_default.
-  Definition alloc_addr (st: store) : addr :=
-    List.length st.
-End Heap.
-
-Definition heap := Heap.store.
-
-Inductive local_id : Type :=
-| SourceId: string -> local_id
-| TempId: nat -> local_id.
-
-Module local_id_eq.
-  Definition t := local_id.
-  Definition eqb x y : bool :=
-    match x, y with
-    | SourceId x', SourceId y' => if string_dec x' y' then true else false
-    | TempId x', TempId y' => beq_nat x' y'
-    | _, _ => false
-    end.
-End local_id_eq.
-
-Inductive value : Type :=
-| v_null: value
-| v_addr: addr -> value.
-
-Module value_default.
-  Definition t := value.
-  Definition default := v_null.
-End value_default.
-
-Module Frame.
-  Include Store local_id_eq value_default.
-  Definition alloc_temp (st: store) : nat :=
-    List.length st.
-End Frame.
-
-Definition frame := Frame.store.
+Require Import Entities.
 
 Reserved Notation "h1 / f1 / e1 '==>' h2 / f2 / e2"
   (at level 40, e1 at level 39, h2 at level 39, f1 at level 38, f2 at level 38).
@@ -78,6 +23,21 @@ Inductive step : heap * frame * expr -> heap * frame * expr -> Prop :=
               (SourceId name) (Frame.get f (TempId t)) ->
     h / f / expr_assign_local name (expr_temp t) ==> h / f' / expr_temp t'
 
+| E_Fld : forall h f f' t t' name addr,
+    t' = Frame.alloc_temp f ->
+    v_addr addr = Frame.get f (TempId t) ->
+    f' = Frame.set f (TempId t') (Heap.get_field h addr name) ->
+    h / f / expr_field (expr_temp t) name ==> h / f' / expr_temp t'
+
+| E_Asn_Field : forall h h' f f' t t' t'' name addr,
+    t'' = Frame.alloc_temp f ->
+    v_addr addr = Frame.get f (TempId t) ->
+    f' = Frame.set f (TempId t'') (Heap.get_field h addr name) ->
+    h' = Heap.set_field h addr name (Frame.get f (TempId t')) ->
+
+    h / f / expr_assign_field (expr_temp t) name (expr_temp t') ==>
+    h' / f' / expr_temp t''
+
 | E_Seq1 : forall h f f' e1 e1' e2,
     h / f / e1 ==> h / f' / e1' ->
     h / f / expr_seq e1 e2 ==> h / f' / expr_seq e1' e2
@@ -89,6 +49,10 @@ Inductive step : heap * frame * expr -> heap * frame * expr -> Prop :=
 | E_Asn_Local1 : forall h f f' name e e',
     h / f / e ==> h / f' / e' ->
     h / f / expr_assign_local name e ==> h / f' / expr_assign_local name e'
+
+| E_Fld1 : forall h f f' e e' name,
+    h / f / e ==> h / f' / e' ->
+    h / f / expr_field e name ==> h / f' / expr_field e' name
 
 where "h1 / f1 / e1 '==>' h2 / f2 / e2" := (step (h1,f1,e1) (h2,f2,e2)).
 

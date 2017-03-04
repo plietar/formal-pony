@@ -7,6 +7,8 @@ Inductive expr : Type :=
 | expr_recover : expr -> expr
 | expr_local : string -> expr
 | expr_assign_local : string -> expr -> expr
+| expr_field : expr -> string -> expr
+| expr_assign_field : expr -> string -> expr -> expr
 .
 
 (*

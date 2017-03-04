@@ -8,7 +8,8 @@ SRC=\
     src/Eval.v \
     src/Semantics.v \
     src/Store.v \
-    src/Extract.v
+    src/Extract.v \
+    src/Entities.v
 
 VO=$(SRC:.v=.vo)
 DEP=$(SRC:.v=.v.d)
