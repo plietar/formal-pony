@@ -1,21 +1,17 @@
 COQC=coqc
 COQDEP=coqdep
 COQINCLUDES=\
-    -R src pony \
-    -R $(TLC) TLC
-
-TLC=tlc/src
-TLC_SRC=$(wildcard $(TLC)/*.v)
-TLC_VO=$(TLC_SRC:.v=.vo)
+    -R src pony
 
 SRC=\
     src/Ast.v \
     src/Eval.v \
     src/Semantics.v \
     src/Store.v \
-#    src/main.v
+    src/Extract.v
 
 VO=$(SRC:.v=.vo)
+DEP=$(SRC:.v=.v.d)
 
 all: $(VO)
 
@@ -25,9 +21,7 @@ all: $(VO)
 %.vo: %.v
 	$(COQC) $(COQFLAGS) $(COQINCLUDES) $<
 
--include $(SRC:.v=.v.d)
--include $(TLC_SRC:.v=.v.d)
+-include $(DEP)
 
 clean:
-	rm -f $(VO) $(TLC_VO)
-	rm -f $(SRC:.v=.v.d) $(TLC_SRC:.v=.v.d)
+	rm -f $(VO) $(DEP)

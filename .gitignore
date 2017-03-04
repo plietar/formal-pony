@@ -2,3 +2,5 @@
 *.vo
 *.v.d
 *.aux
+dist
+out
