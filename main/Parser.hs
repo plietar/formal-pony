@@ -6,7 +6,7 @@ import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 
-import Ast
+import Extracted (Expr(..))
 
 languageDef =
    emptyDef { Token.commentStart    = "/*"
@@ -25,34 +25,41 @@ reservedOp = Token.reservedOp lexer
 parens = Token.parens lexer
 whiteSpace = Token.whiteSpace lexer
 
-op_seq = reservedOp ";" >> return Coq_expr_seq
+op_seq = reservedOp ";" >> return Expr_seq
 
 op_field = do
   reservedOp "."
   ident <- identifier
   notFollowedBy (reservedOp "=")
 
-  return (\e -> Coq_expr_field e ident)
+  return (\e -> Expr_field e ident)
+
+op_call = do
+  reservedOp "."
+  ident <- identifier
+  parens (return ())
+  return (\e -> Expr_call e ident)
 
 op_assign_field = do
   reservedOp "."
   ident <- identifier
   reservedOp "="
 
-  return (\e1 e2 -> Coq_expr_assign_field e1 ident e2)
+  return (\e1 e2 -> Expr_assign_field e1 ident e2)
 
 op_assign_local = do
   ident <- identifier
   reservedOp "="
-  return (Coq_expr_assign_local ident)
+  return (Expr_assign_local ident)
 
-operators = [ [ Postfix (try op_field) ]
+operators = [ [ Postfix (try op_call) ]
+            , [ Postfix (try op_field) ]
             , [ Infix (try op_assign_field) AssocRight ]
             , [ Prefix (try op_assign_local) ]
             , [ Infix (try op_seq) AssocLeft ] ]
 
-term :: Parser Coq_expr
-term = parens expr <|> Coq_expr_local <$> identifier
+term :: Parser Expr
+term = parens expr <|> Expr_local <$> identifier
 
-expr :: Parser Coq_expr
+expr :: Parser Expr
 expr = buildExpressionParser operators term

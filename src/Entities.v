@@ -1,79 +1,78 @@
+Require Import ch2o.prelude.base.
+Require Import ch2o.prelude.nmap.
+
 Require Import Coq.Arith.EqNat.
 Require Import Coq.Strings.String.
 
+Require Import Ast.
 Require Import Store.
+Require Export localmap.
 
-Definition addr := nat.
+Definition addr := N.
 
 Inductive value : Type :=
 | v_null: value
 | v_addr: addr -> value.
 
-Inductive local_id : Type :=
-| SourceId: string -> local_id
-| TempId: nat -> local_id.
+Record frame : Type := {
+  method: string;
+  locals: localmap value;
+  hole: expr_hole
+}.
 
-Module addr_eq.
-  Definition t := addr.
-  Definition eqb x y : bool := beq_nat x y.
-End addr_eq.
+Instance frame_lookup {K} `{l: Lookup K value (localmap value)} : Lookup K value frame := {
+  lookup k f := lookup k f.(locals)
+}.
 
-Module local_id_eq.
-  Definition t := local_id.
-  Definition eqb x y : bool :=
-    match x, y with
-    | SourceId x', SourceId y' => if string_dec x' y' then true else false
-    | TempId x', TempId y' => beq_nat x' y'
-    | _, _ => false
-    end.
-End local_id_eq.
+Instance frame_insert {K} `{l: Insert K value (localmap value)} : Insert K value frame := {
+  insert k v f := {|
+    method := f.(method);
+    locals := insert k v f.(locals);
+    hole := f.(hole)
+  |}
+}.
 
-Module value_default.
-  Definition t := value.
-  Definition default := v_null.
-End value_default.
+Instance frame_elem_of : ElemOf local_id frame :=
+  fun l f => elem_of l (dom localset f.(locals)).
 
-Module field_id_eq.
-  Definition t := string.
-  Definition eqb x y : bool := if string_dec x y then true else false.
-End field_id_eq.
+Instance frame_elem_of_temp : ElemOf N frame :=
+  fun t f => elem_of (TempId t) (dom localset f.(locals)).
 
-Module Frame.
-  Include Store local_id_eq value_default.
-  Definition alloc_temp (st: store) : nat :=
-    List.length st.
-End Frame.
-Definition frame := Frame.store.
+Instance frame_elem_of_var : ElemOf string frame :=
+  fun x f => elem_of (SourceId x) (dom localset f.(locals)).
 
-Module Fields.
-  Include Store field_id_eq value_default.
-End Fields.
+Instance frame_fresh_temp : Fresh N frame :=
+  fun f => fresh f.(locals).
 
-Definition object : Type := string * Fields.store.
+Record object : Type := {
+  name: string;
+  fields: stringmap.stringmap value
+}.
 
-Module object_default.
-  Definition t : Type := object.
-  Definition default : t := (EmptyString, Fields.empty).
-End object_default.
+Definition heap := Nmap object.
 
-Module Heap.
-  Include Store addr_eq object_default.
-  Definition alloc_addr (st: store) : addr :=
-    List.length st.
+Instance heap_field_lookup : Lookup (addr * string) value heap := {
+  lookup idx h :=
+    let (addr, name) := idx in
+    match h !! addr with
+    | Some object => object.(fields) !! name
+    | None => None
+    end
+}.
 
-  Definition create (st: store) (name: string) : store * addr :=
-    let addr := alloc_addr st in
-    let obj := (name, Fields.empty) in
-    (set st addr obj, addr).
+Instance heap_field_insert : Insert (addr * string) value heap := {
+  insert idx v h :=
+    let (addr, field) := idx in
 
-  Definition get_field (st: store) (a: addr) (f: string) : value :=
-    let obj := get st a in
-    Fields.get (snd obj) f.
+    alter (fun obj => {|
+      name := obj.(name);
+      fields := insert field v obj.(fields)
+    |}) addr h
+}.
 
-  Definition set_field (st: store) (a: addr) (f: string) (v: value) : store :=
-    let obj := get st a in
-    let fields' := Fields.set (snd obj) f v in
-    set st a (fst obj, fields').
-End Heap.
+Class LookupDefault (K A M : Type) := lookup_default: K -> M -> A.
+Notation "m !!! i" := (lookup_default i m) (at level 20) : C_scope.
 
-Definition heap := Heap.store.
+Instance value_lookup_default {K M} `{l : Lookup K value M} : LookupDefault K value M :=
+  fun k m => from_option v_null (lookup k m).
+

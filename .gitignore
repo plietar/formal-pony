@@ -4,3 +4,9 @@
 *.aux
 dist
 out
+.sconsign.dblite
+deps
+*.pyc
+.lia.cache
+main/Extracted.hs
+main/Extracted.pre.hs
