@@ -14,7 +14,7 @@ languageDef =
             , Token.commentLine     = "//"
             , Token.identStart      = lower
             , Token.identLetter     = alphaNum
-            , Token.reservedNames   = [ "recover", "class", "fun", "new" ]
+            , Token.reservedNames   = [ "recover", "class", "fun", "new", "var" ]
             , Token.reservedOpNames = [ "=", ".", ";", "=>" ]
             }
 
@@ -69,6 +69,9 @@ term = parens expr <|>
 expr :: Parser Expr
 expr = buildExpressionParser operators term
 
+item_var :: Parser Item
+item_var = reserved "var" >> Item_field <$> identifier
+
 item_fun :: Parser Item
 item_fun = reserved "fun" >> Item_func <$> identifier
                                        <*> parens (commaSep identifier)
@@ -81,7 +84,7 @@ item_new = reserved "new" >> Item_ctor <$> identifier
                                        <* reservedOp "=>"
                                        <*> expr
 item :: Parser Item
-item = item_fun <|> item_new
+item = item_var <|> item_fun <|> item_new
 
 def :: Parser Def
 def = reserved "class" >> Def_class <$> tyname <*> many item

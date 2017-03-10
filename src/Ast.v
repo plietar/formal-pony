@@ -102,6 +102,29 @@ Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
   | expr_hole_ctor n m ts cps' es => expr_hole_ctor n m ts (compose_hole cps' b) es
   end.
 
+Inductive item : Type :=
+| item_field : string -> item
+| item_ctor : string -> list string -> expr -> item
+| item_func : string -> list string -> expr -> item
+| item_behv : string -> list string -> expr -> item
+.
+
+Inductive item_stub : Type :=
+| item_stub_ctor : string -> list string -> item_stub
+| item_stub_func : string -> list string -> item_stub
+| item_stub_behv : string -> list string -> item_stub
+.
+
+Inductive def : Type :=
+| def_class : string -> list item -> def
+| def_actor : string -> list item -> def
+| def_trait : string -> list item_stub -> def
+| def_iface : string -> list item_stub -> def
+.
+
+Definition program : Type := list def.
+
+
 (*
 Require Import Coq.Program.Equality.
 
@@ -204,26 +227,4 @@ simpl. rewrite <- IHh2. simpl. reflexivity.
 simpl. rewrite <- IHh2. simpl. reflexivity.
 Qed.
 *)
-
-Inductive item : Type :=
-| item_field : string -> item
-| item_ctor : string -> list string -> expr -> item
-| item_func : string -> list string -> expr -> item
-| item_behv : string -> list string -> expr -> item
-.
-
-Inductive item_stub : Type :=
-| item_stub_ctor : string -> list string -> item_stub
-| item_stub_func : string -> list string -> item_stub
-| item_stub_behv : string -> list string -> item_stub
-.
-
-Inductive def : Type :=
-| def_class : string -> list item -> def
-| def_actor : string -> list item -> def
-| def_trait : string -> list item_stub -> def
-| def_iface : string -> list item_stub -> def
-.
-
-Definition program : Type := list def.
 

@@ -113,7 +113,7 @@ evaluate expr = do
 command :: String -> String -> Repl ()
 command "heap"  _ = do
   heap <- Extracted.heap_to_list <$> gets stHeap
-  liftIO (mapM_ (\(x, o) -> putStrLn (show x ++ ": " ++ show o)) heap)
+  liftIO (mapM_ (\(x, o) -> putStrLn ("#" ++ show x ++ ": " ++ show o)) heap)
 
 {-command "stack"  _ = do-}
   {-stack <- Extracted.heap_to_list <$> gets stStack-}

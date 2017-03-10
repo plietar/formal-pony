@@ -20,6 +20,13 @@ Require Import Store.
 
 Open Scope string_scope.
 
+Fixpoint lookup_fields (its: list item) : list string :=
+  match its with
+  | nil => nil
+  | item_field name :: tail => name :: lookup_fields tail
+  | _ :: tail => lookup_fields tail
+  end.
+
 Fixpoint lookup_ctor (m: string) (its: list item) : option (list string * expr) :=
   match its with
   | nil => None
@@ -121,10 +128,13 @@ Fixpoint eval' (p: program) (h: heap) (stack: list frame) (e: expr) (cps: expr_h
     | None => None
     | Some (inl x) => Some x
     | Some (inr ts) =>
-      '(argnames, body) <- lookup_class tyname p >>= lookup_ctor ctor;
+      cls <- lookup_class tyname p;
+      let fldnames := lookup_fields cls in
+      '(argnames, body) <- lookup_ctor ctor cls;
 
       let addr := Nfresh h in
-      let h' := <[ addr := {| name := tyname; fields := empty |} ]>h in
+      let fields := fold_left (fun f_ k => <[k := v_null]>f_) fldnames empty in
+      let h' := <[ addr := {| name := tyname; fields := fields |} ]>h in
 
       let f'' := {|
         method := ctor;
@@ -194,7 +204,7 @@ with
   eval_args (p: program) (h: heap) (stack: list frame) (ts: list N) (es: list_expr) (cps: list N -> list_expr -> expr_hole) : option ((heap * list frame * expr) + list N) :=
   match es with
   | list_expr_nil => Some (inr ts)
-  | list_expr_cons (expr_temp t) tail => eval_args p h stack (t::ts) tail cps
+  | list_expr_cons (expr_temp t) tail => eval_args p h stack (ts ++ [t]) tail cps
   | list_expr_cons e tail => fmap inl (eval' p h stack e (cps ts tail))
   end.
 
