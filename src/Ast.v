@@ -102,17 +102,26 @@ Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
   | expr_hole_ctor n m ts cps' es => expr_hole_ctor n m ts (compose_hole cps' b) es
   end.
 
+Inductive cap : Type :=
+| cap_iso : cap
+| cap_tag : cap
+| cap_ref : cap
+.
+
+Inductive ty : Type :=
+| ty_name : string -> cap -> ty.
+
 Inductive item : Type :=
-| item_field : string -> item
-| item_ctor : string -> list string -> expr -> item
-| item_func : string -> list string -> expr -> item
-| item_behv : string -> list string -> expr -> item
+| item_field : string -> ty -> item
+| item_ctor : string -> list (string * ty) -> expr -> item
+| item_func : cap -> string -> list (string * ty) -> ty -> expr -> item
+| item_behv : string -> list (string * ty) -> expr -> item
 .
 
 Inductive item_stub : Type :=
-| item_stub_ctor : string -> list string -> item_stub
-| item_stub_func : string -> list string -> item_stub
-| item_stub_behv : string -> list string -> item_stub
+| item_stub_ctor : string -> list (string * ty) -> item_stub
+| item_stub_func : string -> list (string * ty) -> ty -> item_stub
+| item_stub_behv : string -> list (string * ty) -> item_stub
 .
 
 Inductive def : Type :=
@@ -123,6 +132,53 @@ Inductive def : Type :=
 .
 
 Definition program : Type := list def.
+
+Fixpoint lookup_class (ty: string) (its: list def) : option (list item) :=
+  match its with
+  | nil => None
+  | def_class name items :: tail =>
+      if string_dec ty name
+      then Some items
+      else lookup_class ty tail
+  | _ :: tail => lookup_class ty tail
+  end.
+
+Fixpoint lookup_method (m: string) (its: list item) : option (cap * list (string * ty) * ty * expr) :=
+  match its with
+  | nil => None
+  | item_func reccap name args retty body :: tail =>
+      if string_dec m name
+      then Some (reccap, args, retty, body)
+      else lookup_method m tail
+  | _ :: tail => lookup_method m tail
+  end.
+
+Fixpoint lookup_ctor (m: string) (its: list item) : option (list (string * ty) * expr) :=
+  match its with
+  | nil => None
+  | item_ctor name args body :: tail =>
+      if string_dec m name
+      then Some (args, body)
+      else lookup_ctor m tail
+  | _ :: tail => lookup_ctor m tail
+  end.
+
+Fixpoint lookup_field (f: string) (its: list item) : option ty :=
+  match its with
+  | nil => None
+  | item_field name ty :: tail =>
+      if string_dec f name
+      then Some ty
+      else lookup_field f tail
+  | _ :: tail => lookup_field f tail
+  end.
+
+Fixpoint lookup_fields (its: list item) : list (string * ty) :=
+  match its with
+  | nil => nil
+  | item_field name ty :: tail => (name, ty) :: lookup_fields tail
+  | _ :: tail => lookup_fields tail
+  end.
 
 
 (*

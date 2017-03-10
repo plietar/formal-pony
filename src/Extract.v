@@ -1,6 +1,7 @@
 Require Import Eval.
 Require Import Ast.
 (*Require Import Semantics.*)
+Require Import checker.
 Require Import Entities.
 Require Import ch2o.prelude.base.
 Require Import ch2o.prelude.stringmap.
@@ -14,15 +15,14 @@ Require Import Coq.extraction.ExtrHaskellString.
 Require Import Coq.extraction.ExtrHaskellNatInteger.
 Require Import Coq.NArith.BinNatDef.
 
-Definition init : heap * list frame :=
-    let h := empty in
+Definition init : heap * list frame * ty_ctx :=
     let f := {|
       method := "<interactive>";
       locals := empty;
       hole := expr_hole_id
     |} in
 
-    (h, f::nil).
+    (empty, f::nil, empty).
 
 Definition N_to_nat := N.to_nat.
 Definition P_to_nat := Pos.to_nat.
@@ -36,5 +36,10 @@ Definition fields_to_list (m: stringmap value): list (string * value) :=
 Extraction Language Haskell.
 Set Extraction KeepSingleton.
 Extraction "main/Extracted.pre.hs"
-    init eval frame local_id heap_to_list fields_to_list N_to_nat P_to_nat Pto_list stringmap_to_list.
+    init eval ck_expr ty_ctx
+    frame local_id
+    heap_to_list fields_to_list
+    N_to_nat P_to_nat
+    Nto_list Pto_list
+    stringmap_to_list.
 

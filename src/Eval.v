@@ -20,43 +20,6 @@ Require Import Store.
 
 Open Scope string_scope.
 
-Fixpoint lookup_fields (its: list item) : list string :=
-  match its with
-  | nil => nil
-  | item_field name :: tail => name :: lookup_fields tail
-  | _ :: tail => lookup_fields tail
-  end.
-
-Fixpoint lookup_ctor (m: string) (its: list item) : option (list string * expr) :=
-  match its with
-  | nil => None
-  | item_ctor name args body :: tail =>
-      if string_dec m name
-      then Some (args, body)
-      else lookup_ctor m tail
-  | _ :: tail => lookup_ctor m tail
-  end.
-
-Fixpoint lookup_method (m: string) (its: list item) : option (list string * expr) :=
-  match its with
-  | nil => None
-  | item_func name args body :: tail =>
-      if string_dec m name
-      then Some (args, body)
-      else lookup_method m tail
-  | _ :: tail => lookup_method m tail
-  end.
-
-Fixpoint lookup_class (ty: string) (its: list def) : option (list item) :=
-  match its with
-  | nil => None
-  | def_class name items :: tail =>
-      if string_dec ty name
-      then Some items
-      else lookup_class ty tail
-  | _ :: tail => lookup_class ty tail
-  end.
-
 Fixpoint expr_size (e: expr) : nat :=
   match e with
   | expr_temp _ => 1
@@ -101,11 +64,12 @@ Fixpoint eval' (p: program) (h: heap) (stack: list frame) (e: expr) (cps: expr_h
         match f !!! t0 with
         | v_addr addr => 
           obj <- h !! addr;
-          '(argnames, body) <- lookup_class obj.(name) p >>= lookup_method mname;
+          cls <- lookup_class obj.(name) p;
+          '(_, argnames, _, body) <- lookup_method mname cls;
 
           let f'' := {|
             method := mname;
-            locals := fold_left (fun f_ u => <[fst u := f !!! snd u]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
+            locals := fold_left (fun f_ u => <[fst (fst u) := (f !!! snd u)]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
             hole := expr_hole_id
           |} in
 
@@ -133,12 +97,12 @@ Fixpoint eval' (p: program) (h: heap) (stack: list frame) (e: expr) (cps: expr_h
       '(argnames, body) <- lookup_ctor ctor cls;
 
       let addr := Nfresh h in
-      let fields := fold_left (fun f_ k => <[k := v_null]>f_) fldnames empty in
+      let fields := fold_left (fun f_ k => <[fst k := v_null]>f_) fldnames empty in
       let h' := <[ addr := {| name := tyname; fields := fields |} ]>h in
 
       let f'' := {|
         method := ctor;
-        locals := fold_left (fun f_ u => <[fst u := f !!! snd u]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
+        locals := fold_left (fun f_ u => <[fst (fst u) := f !!! snd u]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
         hole := expr_hole_id
       |} in
 

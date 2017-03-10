@@ -10,7 +10,7 @@ import Text.Parsec.Combinator (eof)
 import System.Environment (getArgs)
 
 import qualified Parser
-import Extracted (Program, List_expr, Expr(..), Expr_hole(..), Heap, Value(..), Local_id(..), Frame)
+import Extracted (Program, Expr(..), Expr_hole(..), Heap, Value(..), Local_id(..), Frame, Ty, Ty_ctx)
 import Extracted (Nmap, Pmap, Stringmap, list_expr_uncoerce)
 import qualified Extracted
 
@@ -18,7 +18,6 @@ deriving instance Show Local_id
 deriving instance Show Extracted.Def
 deriving instance Show Extracted.Item
 deriving instance Show Extracted.Item_stub
-deriving instance Show List_expr
 deriving instance Show Frame
 
 instance Show Expr_hole where
@@ -48,14 +47,22 @@ instance Show Value where
   show V_null = "null"
   show (V_addr addr) = "#" ++ show (Extracted.n_to_nat addr)
 
+instance Show Extracted.Cap where
+  show Extracted.Cap_iso = "iso"
+  show Extracted.Cap_tag = "tag"
+  show Extracted.Cap_ref = "ref"
+
+instance Show Extracted.Ty where
+  show (Extracted.Ty_name name cap) = name ++ " " ++ show cap
+
 instance Show Extracted.Object where
   show (Extracted.Build_object name fields) =
     name ++ " { " ++ concat (intersperse ", " (map (\(k,v) -> k ++ ": " ++ show v ) (Extracted.fields_to_list fields))) ++ " }"
 
-instance Show (Extracted.N) where
+instance Show Extracted.N where
   show = show . Extracted.n_to_nat
 
-instance Show (Extracted.Positive) where
+instance Show Extracted.Positive where
   show = show . Extracted.p_to_nat
 
 instance (Show a) => Show (Stringmap a) where
@@ -67,11 +74,13 @@ instance (Show a) => Show (Nmap a) where
 instance (Show a) => Show (Pmap a) where
   show = show . Extracted.map_to_list Extracted.pto_list 
 
-
-data ST = ST { stProg :: Program, stHeap :: Heap, stStack :: [Frame] }
+data ST = ST { stProg :: Program, stHeap :: Heap, stStack :: [Frame], stCtx :: Ty_ctx }
 type Repl = StateT ST (ExceptT String IO)
 
-(init_heap, init_stack) = Extracted.init
+tyctx_insert :: String -> Ty -> Ty_ctx -> Ty_ctx
+tyctx_insert = Extracted.insert (Extracted.map_insert Extracted.stringmap_partial_alter)
+
+((init_heap, init_stack), init_tyctx) = Extracted.init
 
 multiline :: Repl String
 multiline = liftIO (multiline' [])
@@ -87,7 +96,7 @@ load :: String -> Repl ()
 load contents = do
   prog <- parser Parser.prog contents
   liftIO (print prog)
-  put (ST prog init_heap init_stack)
+  put (ST prog init_heap init_stack init_tyctx)
 
 loadFile :: FilePath -> Repl ()
 loadFile path = liftIO (readFile path) >>= load
@@ -98,34 +107,38 @@ parser p line =
     Right e -> return e
     Left err -> throwError (show err)
 
-evaluate :: Expr -> Repl Value
-evaluate expr = do
-  (ST prog heap stack) <- get
+evaluate' :: Expr -> Repl Value
+evaluate' expr = do
+  (ST prog heap stack ctx) <- get
   -- liftIO . putStr . unlines  $ map (("- "++) . show) stack ++ ["  " ++ show expr]
 
   case (expr, stack) of
     (Expr_temp temp, [frame]) ->
       let Just x = Extracted.lookup (Extracted.frame_lookup Extracted.localmap_lookup_temp) temp frame in return x
     _ -> case Extracted.eval prog heap stack expr of
-      Just ((heap', stack'), expr') -> put (ST prog heap' stack') >> evaluate expr'
+      Just ((heap', stack'), expr') -> put (ST prog heap' stack' ctx) >> evaluate' expr'
       Nothing -> throwError "eval error"
+
+evaluate :: Expr -> Repl (Ty, Value)
+evaluate expr = do
+  (ST prog _ _ ctx) <- get
+  case Extracted.ck_expr prog ctx expr of
+    Just ty -> (,) ty <$> evaluate' expr
+    Nothing -> throwError "typecheck error"
 
 command :: String -> String -> Repl ()
 command "heap"  _ = do
   heap <- Extracted.heap_to_list <$> gets stHeap
   liftIO (mapM_ (\(x, o) -> putStrLn ("#" ++ show x ++ ": " ++ show o)) heap)
 
-{-command "stack"  _ = do-}
-  {-stack <- Extracted.heap_to_list <$> gets stStack-}
-
+command "ctx" _ = do
+  ctx <- gets stCtx
+  liftIO (print ctx)
 
 command "reset" _ = do
     modify (\s -> s { stHeap = init_heap, stStack = init_stack })
 
 command "parse" line = parser Parser.expr line >>= liftIO . print
-
-command "parse_def" line = parser Parser.def line >>= liftIO . print
-command "parse_item" line = parser Parser.item line >>= liftIO . print
 
 command "load" "" = multiline >>= load
 command "load" path = loadFile path
@@ -136,21 +149,28 @@ repl (':':line) =
   let (c, rest) = break isSpace line in
   command c (dropWhile isSpace rest)
 
+repl ('l':'e':'t':' ':line) = do
+  (x, ty) <- parser ((,) <$> Parser.identifier <* Parser.colon <*> Parser.ty) line
+  modify (\s -> s { stCtx = tyctx_insert x ty (stCtx s) })
+
 repl line = do
   e <- parser Parser.expr line
-  value <- evaluate e
+  (ty, value) <- evaluate e
   heap <- gets stHeap
 
-  case value of
-    V_null -> liftIO (putStrLn "null")
-    V_addr addr ->
-      let (Just object) = Extracted.lookup Extracted.nlookup addr heap
-      in liftIO (print object)
+  let desc =
+       case value of
+        V_null -> "null"
+        V_addr addr ->
+          let (Just object) = Extracted.lookup Extracted.nlookup addr heap
+          in show object
+
+  liftIO $ putStrLn (desc ++ " : " ++ show ty)
 
 main :: IO ()
 main = do
   args <- getArgs
-  result <- runExceptT . flip evalStateT (ST [] init_heap init_stack) $ do
+  result <- runExceptT . flip evalStateT (ST [] init_heap init_stack init_tyctx) $ do
     prog <- case args of
       [] -> return ()
       (path : _) -> loadFile path

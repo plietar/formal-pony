@@ -6,7 +6,7 @@ import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 
-import Extracted (Expr(..), Program(..), Def(..), Item(..), list_expr_coerce)
+import Extracted (Expr(..), Ty(..), Cap(..), Program(..), Def(..), Item(..), list_expr_coerce)
 
 languageDef =
    emptyDef { Token.commentStart    = "/*"
@@ -14,7 +14,7 @@ languageDef =
             , Token.commentLine     = "//"
             , Token.identStart      = lower
             , Token.identLetter     = alphaNum
-            , Token.reservedNames   = [ "recover", "class", "fun", "new", "var" ]
+            , Token.reservedNames   = [ "recover", "class", "fun", "new", "var", "iso", "ref" ]
             , Token.reservedOpNames = [ "=", ".", ";", "=>" ]
             }
 
@@ -25,6 +25,7 @@ reservedOp = Token.reservedOp lexer
 parens = Token.parens lexer
 whiteSpace = Token.whiteSpace lexer
 commaSep = Token.commaSep lexer
+colon = Token.colon lexer
 
 tyname = Token.identifier $ Token.makeTokenParser $ languageDef { Token.identStart = upper }
 
@@ -61,26 +62,37 @@ operators = [ [ Postfix (try op_call) ]
             , [ Prefix (try op_assign_local) ]
             , [ Infix (try op_seq) AssocLeft ] ]
 
+cap :: Parser Cap
+cap = Cap_iso <$ reserved "iso" <|>
+      Cap_ref <$ reserved "ref" <|>
+      Cap_tag <$ reserved "tag" <?> "capability"
+
+ty :: Parser Ty
+ty = Ty_name <$> tyname <*> cap <?> "type"
+
 term :: Parser Expr
 term = parens expr <|>
     Expr_local <$> identifier <|>
     Expr_ctor <$> tyname <* reservedOp "." <*> identifier <*> parens (list_expr_coerce <$> commaSep expr)
 
 expr :: Parser Expr
-expr = buildExpressionParser operators term
+expr = buildExpressionParser operators term <?> "expression"
 
 item_var :: Parser Item
-item_var = reserved "var" >> Item_field <$> identifier
+item_var = reserved "var" >> Item_field <$> identifier <* colon <*> ty
 
 item_fun :: Parser Item
-item_fun = reserved "fun" >> Item_func <$> identifier
-                                       <*> parens (commaSep identifier)
+item_fun = reserved "fun" >> Item_func <$> cap
+                                       <*> identifier
+                                       <*> parens (commaSep ((,) <$> identifier <* colon <*> ty))
+                                       <* colon
+                                       <*> ty
                                        <* reservedOp "=>"
                                        <*> expr
 
 item_new :: Parser Item
 item_new = reserved "new" >> Item_ctor <$> identifier
-                                       <*> parens (commaSep identifier)
+                                       <*> parens (commaSep ((,) <$> identifier <* colon <*> ty))
                                        <* reservedOp "=>"
                                        <*> expr
 item :: Parser Item
