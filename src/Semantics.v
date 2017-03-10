@@ -1,3 +1,4 @@
+(*
 Require Import ch2o.prelude.base.
 Require Import ch2o.prelude.option.
 Require Import Coq.Lists.List.
@@ -13,115 +14,113 @@ Reserved Notation "LHS '⇒' RHS" (at level 40).
 Open Scope string_scope.
 
 Inductive step : heap * list frame * expr -> heap * list frame * expr -> Prop :=
-| E_Seq : forall h f t e stack,
-    (h, f :: stack, expr_seq (expr_temp t) e) ⇒ (h, f :: stack, e)
+| E_Seq : forall χ φ t e stack,
+    (χ, φ :: stack, expr_seq (expr_temp t) e) ⇒ (χ, φ :: stack, e)
 
-| E_Recover : forall h f t stack,
-    (h, f :: stack, expr_recover (expr_temp t)) ⇒ (h, f :: stack, (expr_temp t))
+| E_Recover : forall χ φ t stack,
+    (χ, φ :: stack, expr_recover (expr_temp t)) ⇒ (χ, φ :: stack, (expr_temp t))
 
-| E_Local : forall h f t f' name stack,
-    not (elem_of t f) ->
-    f' = <[t := f !!! name]> f ->
-    (h, f :: stack, expr_local name) ⇒ (h, f' :: stack, expr_temp t)
+| E_Local : forall χ φ t φ' x stack,
+    not (elem_of t φ) ->
+    φ' = <[t := φ !!! x]> φ ->
+    (χ, φ :: stack, expr_local x) ⇒ (χ, φ' :: stack, expr_temp t)
 
-| E_Asn_Local : forall h f f' t t' x stack,
-    not (elem_of t' f) ->
+| E_Asn_Local : forall χ φ φ' t t' x stack,
+    not (elem_of t' φ) ->
+    φ' = <[t' := φ !!! x]>(<[x := φ !!! t]>φ) ->
+    (χ, φ :: stack, expr_assign_local x (expr_temp t)) ⇒ (χ, φ' :: stack, expr_temp t')
 
-    f' = <[t' := f !!! x]>(<[x := f !!! t]>f) ->
+| E_Fld : forall χ φ φ' t t' f addr stack,
+    not (elem_of t' φ) ->
+    v_addr addr = φ !!! t ->
+    φ' = <[t' := χ !!! (addr, f)]> φ ->
+    (χ, φ :: stack, expr_field (expr_temp t) f) ⇒ (χ, φ' :: stack, expr_temp t')
 
-    (h, f :: stack, expr_assign_local x (expr_temp t)) ⇒ (h, f' :: stack, expr_temp t')
+| E_Asn_Fld : forall χ χ' φ φ' t t' t'' f addr stack,
+    not (elem_of t'' φ) ->
+    v_addr addr = φ !!! t ->
+    φ' = <[t'' := χ !!! (addr, f)]>φ ->
+    χ' = <[(addr, f) := φ !!! t']>χ ->
 
-| E_Fld : forall h f f' t t' name addr stack,
-    not (elem_of t' f) ->
-    v_addr addr = f !!! t ->
-    f' = <[t' := h !!! (addr, name)]> f ->
-    (h, f :: stack, expr_field (expr_temp t) name) ⇒ (h, f' :: stack, expr_temp t')
+    (χ, φ :: stack, expr_assign_field (expr_temp t) f(expr_temp t')) ⇒
+    (χ', φ' :: stack, expr_temp t'')
 
-| E_Asn_Fld : forall h h' f f' t t' t'' name addr stack,
-    not (elem_of t'' f) ->
-    v_addr addr = f !!! t ->
-    f' = <[t'' := h !!! (addr, name)]>f ->
-    h' = <[(addr, name) := f !!! t']>h ->
+| E_Sync : forall χ φ φ' φ'' t hole e0 name stack addr,
+    v_addr addr = φ !!! t ->
 
-    (h, f :: stack, expr_assign_field (expr_temp t) name (expr_temp t')) ⇒
-    (h', f' :: stack, expr_temp t'')
-
-| E_Fld_Null : forall h f t name stack,
-    v_null = f !!! t ->
-
-    (h, f :: stack, expr_field (expr_temp t) name) ⇒
-    (h, f :: stack, expr_temp t)
-
-| E_Asn_Fld_Null : forall h f t t' name stack,
-    v_null = f !!! t ->
-
-    (h, f :: stack, expr_assign_field (expr_temp t) name (expr_temp t')) ⇒
-    (h, f :: stack, expr_temp t)
-
-| E_Call_Null : forall h f t name stack,
-    v_null = f !!! t ->
-
-    (h, f :: stack, expr_call (expr_temp t) name) ⇒
-    (h, f :: stack, expr_temp t)
-
-| E_Sync : forall h f f' f'' t hole e0 name stack addr,
-    v_addr addr = f !!! t ->
-
-    f'' = {|
+    φ'' = {|
       method := name;
       locals := <["this" := (v_addr addr)]>empty;
       hole := expr_hole_id
     |} ->
 
-    f' = {|
-      method := f.(method);
-      locals := f.(locals);
+    φ' = {|
+      method := φ.(method);
+      locals := φ.(locals);
       hole := hole
     |} ->
     
-    make_hole e0 (expr_call (expr_temp t) name) hole ->
+    make_hole e0 (expr_call (expr_temp t) name nil) hole ->
 
-    (h, f :: stack, e0) ⇒ (h, f'' :: f' :: stack, (expr_local "this"))
+    (χ, φ :: stack, e0) ⇒ (χ, φ'' :: φ' :: stack, (expr_local "this"))
 
-| E_Return : forall h f f' f'' hole t t' stack,
-    not (elem_of t' f) ->
+| E_Return : forall χ φ φ' φ'' hole t t' stack,
+    not (elem_of t' φ) ->
 
-    f'' = {|
-      method := f.(method);
-      locals := <[t' := f' !!! t]>f.(locals);
+    φ'' = {|
+      method := φ.(method);
+      locals := <[t' := φ' !!! t]>φ.(locals);
       hole := expr_hole_id
     |} ->
 
-    (h, f' :: f :: stack, expr_temp t) ⇒
-    (h, f'' :: stack, fill_hole f.(hole) (expr_temp t'))
+    (χ, φ' :: φ :: stack, expr_temp t) ⇒
+    (χ, φ'' :: stack, fill_hole φ.(hole) (expr_temp t'))
 
-| E_Seq1 : forall h h' f f' e1 e1' e2 stack,
-    (h, f :: stack, e1) ⇒ (h', f' :: stack, e1') ->
-    (h, f :: stack, expr_seq e1 e2) ⇒ (h', f' :: stack, expr_seq e1' e2)
+| E_Fld_Null : forall χ φ t f stack,
+    φ !!! t = v_null ->
 
-| E_Recover1 : forall h h' f f' e e' stack,
-    (h, f :: stack, e) ⇒ (h', f' :: stack, e') ->
-    (h, f :: stack, expr_recover e) ⇒ (h', f' :: stack, expr_recover e')
+    (χ, φ :: stack, expr_field (expr_temp t) f) ⇒
+    (χ, φ :: stack, expr_temp t)
 
-| E_Asn_Local1 : forall h h' f f' name e e' stack,
-    (h, f :: stack, e) ⇒ (h', f' :: stack, e') ->
-    (h, f :: stack, expr_assign_local name e) ⇒ (h', f' :: stack, expr_assign_local name e')
+| E_Asn_Fld_Null : forall χ φ t t' f stack,
+    φ !!! t = v_null ->
 
-| E_Fld1 : forall h h' f f' e e' name stack,
-    (h, f :: stack, e) ⇒ (h', f' :: stack, e') ->
-    (h, f :: stack, expr_field e name) ⇒ (h', f' :: stack, expr_field e' name)
+    (χ, φ :: stack, expr_assign_field (expr_temp t) f (expr_temp t')) ⇒
+    (χ, φ :: stack, expr_temp t)
 
-| E_Asn_Fld1 : forall h h' f f' e1 e1' e2 name stack,
-    (h, f :: stack, e1) ⇒ (h', f' :: stack, e1') ->
+| E_Call_Null : forall χ φ t name stack,
+    φ !!! t = v_null ->
 
-    (h, f :: stack, expr_assign_field e1 name e2) ⇒
-    (h', f' :: stack, expr_assign_field e1' name e2)
+    (χ, φ :: stack, expr_call (expr_temp t) name nil) ⇒
+    (χ, φ :: stack, expr_temp t)
 
-| E_Asn_Fld2 : forall h h' f f' t1 e2 e2' name stack,
-    (h, f :: stack, e2) ⇒ (h', f' :: stack, e2') ->
+| E_Seq1 : forall χ χ' φ φ' e1 e1' e2 stack,
+    (χ, φ :: stack, e1) ⇒ (χ', φ' :: stack, e1') ->
+    (χ, φ :: stack, expr_seq e1 e2) ⇒ (χ', φ' :: stack, expr_seq e1' e2)
 
-    (h, f :: stack, expr_assign_field (expr_temp t1) name e2) ⇒
-    (h', f' :: stack, expr_assign_field (expr_temp t1) name e2')
+| E_Recover1 : forall χ χ' φ φ' e e' stack,
+    (χ, φ :: stack, e) ⇒ (χ', φ' :: stack, e') ->
+    (χ, φ :: stack, expr_recover e) ⇒ (χ', φ' :: stack, expr_recover e')
+
+| E_Asn_Local1 : forall χ χ' φ φ' name e e' stack,
+    (χ, φ :: stack, e) ⇒ (χ', φ' :: stack, e') ->
+    (χ, φ :: stack, expr_assign_local name e) ⇒ (χ', φ' :: stack, expr_assign_local name e')
+
+| E_Fld1 : forall χ χ' φ φ' e e' name stack,
+    (χ, φ :: stack, e) ⇒ (χ', φ' :: stack, e') ->
+    (χ, φ :: stack, expr_field e name) ⇒ (χ', φ' :: stack, expr_field e' name)
+
+| E_Asn_Fld1 : forall χ χ' φ φ' e1 e1' e2 name stack,
+    (χ, φ :: stack, e1) ⇒ (χ', φ' :: stack, e1') ->
+
+    (χ, φ :: stack, expr_assign_field e1 name e2) ⇒
+    (χ', φ' :: stack, expr_assign_field e1' name e2)
+
+| E_Asn_Fld2 : forall χ χ' φ φ' t1 e2 e2' name stack,
+    (χ, φ :: stack, e2) ⇒ (χ', φ' :: stack, e2') ->
+
+    (χ, φ :: stack, expr_assign_field (expr_temp t1) name e2) ⇒
+    (χ', φ' :: stack, expr_assign_field (expr_temp t1) name e2')
 
 where "LHS '⇒' RHS" := (step LHS RHS).
 
@@ -236,3 +235,4 @@ apply multi_refl.
   apply E_Asn_Fld2. exact H.
   apply IHmultistep.
 Qed.
+*)

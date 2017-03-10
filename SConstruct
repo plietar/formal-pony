@@ -31,3 +31,4 @@ env.Command('main/Extracted.hs',
             'main/Extracted.pre.hs',
             Action(add_qualified))
 
+env.CoqIdeScript('coqidescript', [])

@@ -1,6 +1,7 @@
 Require Import Coq.Strings.String.
 Require Import Coq.Lists.List.
 Require Import Coq.Numbers.BinNums.
+Require Import ch2o.prelude.prelude.
 
 Inductive expr : Type :=
 | expr_temp : N -> expr
@@ -10,8 +11,22 @@ Inductive expr : Type :=
 | expr_assign_local : string -> expr -> expr
 | expr_field : expr -> string -> expr
 | expr_assign_field : expr -> string -> expr -> expr
-| expr_call : expr -> string -> expr
+| expr_call : expr -> string -> list_expr  -> expr
+| expr_ctor : string -> string -> expr
+with list_expr : Type :=
+| list_expr_nil : list_expr
+| list_expr_cons : expr -> list_expr -> list_expr
 .
+
+Fixpoint list_expr_coerce (l: list expr) := match l with
+| nil => list_expr_nil
+| (h :: t) => list_expr_cons h (list_expr_coerce t)
+end.
+
+Fixpoint list_expr_uncoerce (l: list_expr) := match l with
+| list_expr_nil => nil
+| list_expr_cons h t => h :: (list_expr_uncoerce t)
+end.
 
 Inductive expr_hole : Type :=
 | expr_hole_id : expr_hole
@@ -21,7 +36,8 @@ Inductive expr_hole : Type :=
 | expr_hole_field : expr_hole -> string -> expr_hole
 | expr_hole_assign_field1 : expr -> string -> expr_hole -> expr_hole
 | expr_hole_assign_field2 : expr_hole -> string -> N -> expr_hole
-| expr_hole_call1 : expr_hole -> string -> expr_hole
+| expr_hole_call1 : expr -> string -> list N -> expr_hole -> list_expr -> expr_hole
+| expr_hole_call2 : expr_hole -> string -> list N -> expr_hole
 .
 
 Inductive make_hole : expr -> expr -> expr_hole -> Prop :=
@@ -45,8 +61,14 @@ Inductive make_hole : expr -> expr -> expr_hole -> Prop :=
 | make_hole_assign_field2: forall e1 n t eh e1', make_hole e1 eh e1' ->
     make_hole (expr_assign_field e1 n (expr_temp t)) eh (expr_hole_assign_field2 e1' n t)
 
-| make_hole_call1: forall e1 n eh e1', make_hole e1 eh e1' ->
-    make_hole (expr_call e1 n) eh (expr_hole_call1 e1' n).
+| make_hole_call1: forall e eh e' e0 n ts es,
+    make_hole e eh e' ->
+    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts ++ (e :: list_expr_uncoerce es))))
+    eh (expr_hole_call1 e0 n ts e' es)
+
+| make_hole_call2: forall e0 eh e0' n ts,
+    make_hole e0 eh e0' ->
+    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts))) eh (expr_hole_call2 e0' n ts).
 
 Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
   match cps with
@@ -57,7 +79,8 @@ Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
   | expr_hole_field cps' name => expr_field (fill_hole cps' filler) name
   | expr_hole_assign_field1 e1 name cps' => expr_assign_field e1 name (fill_hole cps' filler)
   | expr_hole_assign_field2 cps' name t2 => expr_assign_field (fill_hole cps' filler) name (expr_temp t2)
-  | expr_hole_call1 cps' name => expr_call (fill_hole cps' filler) name
+  | expr_hole_call1 e0 name ts cps' es => expr_call e0 name (list_expr_coerce ((fmap expr_temp ts) ++ (fill_hole cps' filler) :: list_expr_uncoerce es))
+  | expr_hole_call2 cps' name ts => expr_call (fill_hole cps' filler) name (list_expr_coerce (fmap expr_temp ts))
   end.
 
 Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
@@ -69,9 +92,11 @@ Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
   | expr_hole_field cps' name => expr_hole_field (compose_hole cps' b) name
   | expr_hole_assign_field1 e1 name cps' => expr_hole_assign_field1 e1 name (compose_hole cps' b)
   | expr_hole_assign_field2 cps' name t2 => expr_hole_assign_field2 (compose_hole cps' b) name t2
-  | expr_hole_call1 cps' name => expr_hole_call1 (compose_hole cps' b) name
+  | expr_hole_call1 e0 name ts cps' es => expr_hole_call1 e0 name ts (compose_hole cps' b) es
+  | expr_hole_call2 cps' name ts => expr_hole_call2 (compose_hole cps' b) name ts
   end.
 
+(*
 Require Import Coq.Program.Equality.
 
 Lemma id_fill: forall e, fill_hole expr_hole_id e = e.
@@ -172,6 +197,7 @@ simpl. rewrite <- IHh2. simpl. reflexivity.
 simpl. rewrite <- IHh2. simpl. reflexivity.
 simpl. rewrite <- IHh2. simpl. reflexivity.
 Qed.
+*)
 
 Inductive item : Type :=
 | item_field : string -> item
@@ -193,5 +219,5 @@ Inductive def : Type :=
 | def_iface : string -> list item_stub -> def
 .
 
-Inductive program : Type := Program : list def -> program.
+Definition program : Type := list def.
 
