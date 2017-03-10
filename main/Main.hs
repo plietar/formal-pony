@@ -29,7 +29,9 @@ instance Show Expr_hole where
   show (Expr_hole_field e n) = show e ++ "." ++ n
   show (Expr_hole_assign_field1 e1 n e2) = show e1 ++ "." ++ n ++ " = " ++ show e2
   show (Expr_hole_assign_field2 e1 n t) = show e1 ++ "." ++ n ++ " = " ++ show t
-  show (Expr_hole_call2 e1 n ts) = show e1 ++ "." ++ n ++ "(" ++ (concat . intersperse ", " . map show $ ts) ++ ")"
+  show (Expr_hole_call1 e0 n ts e es) = show e0 ++ "." ++ n ++ "(" ++ (concat . intersperse ", " $ (map show ts ++ [show e] ++ map show (list_expr_uncoerce es))) ++ ")"
+  show (Expr_hole_call2 e0 n ts) = show e0 ++ "." ++ n ++ "(" ++ (concat . intersperse ", " . map show $ ts) ++ ")"
+  show (Expr_hole_ctor n m ts e es) = n ++ "." ++ m ++ "(" ++ (concat . intersperse ", " $ (map show ts ++ [show e] ++ map show (list_expr_uncoerce es))) ++ ")"
 
 instance Show Expr where
   show (Expr_temp t) = show t
@@ -40,7 +42,7 @@ instance Show Expr where
   show (Expr_field e n) = show e ++ "." ++ n
   show (Expr_assign_field e1 n e2) = show e1 ++ "." ++ n ++ " = " ++ show e2
   show (Expr_call e1 n es) = show e1 ++ "." ++ n ++ "(" ++ (concat . intersperse ", " . map show . list_expr_uncoerce $ es) ++ ")"
-  show (Expr_ctor n m) = n ++ "." ++ m ++ "()"
+  show (Expr_ctor n m es) = n ++ "." ++ m ++ "(" ++ (concat . intersperse ", " . map show . list_expr_uncoerce $ es) ++ ")"
   
 instance Show Value where
   show V_null = "null"

@@ -20,6 +20,16 @@ Require Import Store.
 
 Open Scope string_scope.
 
+Fixpoint lookup_ctor (m: string) (its: list item) : option (list string * expr) :=
+  match its with
+  | nil => None
+  | item_ctor name args body :: tail =>
+      if string_dec m name
+      then Some (args, body)
+      else lookup_ctor m tail
+  | _ :: tail => lookup_ctor m tail
+  end.
+
 Fixpoint lookup_method (m: string) (its: list item) : option (list string * expr) :=
   match its with
   | nil => None
@@ -42,15 +52,15 @@ Fixpoint lookup_class (ty: string) (its: list def) : option (list item) :=
 
 Fixpoint expr_size (e: expr) : nat :=
   match e with
-  | expr_temp _ => 0
+  | expr_temp _ => 1
   | expr_seq e1 e2 => 1 + expr_size e1 + expr_size e2
   | expr_recover e => 1 + expr_size e
-  | expr_local _ => 0
+  | expr_local _ => 1
   | expr_assign_local _ e => 1 + expr_size e
   | expr_field e _ => 1 + expr_size e
   | expr_assign_field e1 _ e2 => 1 + expr_size e1 + expr_size e2
   | expr_call e0 _ es => 1 + expr_size e0 + expr_list_size es
-  | expr_ctor _ _ => 0
+  | expr_ctor _ _ es => 1 + expr_list_size es
   end
 with expr_list_size es := match es with
   | list_expr_nil => 0
@@ -106,15 +116,32 @@ Fixpoint eval' (p: program) (h: heap) (stack: list frame) (e: expr) (cps: expr_h
       end
     end
 
-  | (f :: stack'), expr_ctor tyname ctor =>
-    let addr := Nfresh h in
-    let obj := {| name := tyname; fields := empty |} in
-    let h' := <[ addr := obj ]>h in
+  | (f :: stack'), expr_ctor tyname ctor es =>
+    match eval_args p h stack nil es (fun ts es' => compose_hole cps (expr_hole_ctor tyname ctor ts expr_hole_id es')) with
+    | None => None
+    | Some (inl x) => Some x
+    | Some (inr ts) =>
+      '(argnames, body) <- lookup_class tyname p >>= lookup_ctor ctor;
 
-    let t := fresh f in
-    let f' := <[ t := v_addr addr ]>f in
+      let addr := Nfresh h in
+      let h' := <[ addr := {| name := tyname; fields := empty |} ]>h in
 
-    Some (h', f' :: stack', fill_hole cps (expr_temp t))
+      let f'' := {|
+        method := ctor;
+        locals := fold_left (fun f_ u => <[fst u := f !!! snd u]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
+        hole := expr_hole_id
+      |} in
+
+      let t := fresh f in
+
+      let f' := {|
+        method := f.(method);
+        locals := f.(locals);
+        hole := cps
+      |} in
+
+      Some (h', f'' :: f' :: stack', body)
+    end
 
   | (f :: stack'), expr_seq (expr_temp t) e' => Some (h, f :: stack', fill_hole cps e')
 

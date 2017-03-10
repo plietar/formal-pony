@@ -12,7 +12,7 @@ Inductive expr : Type :=
 | expr_field : expr -> string -> expr
 | expr_assign_field : expr -> string -> expr -> expr
 | expr_call : expr -> string -> list_expr  -> expr
-| expr_ctor : string -> string -> expr
+| expr_ctor : string -> string -> list_expr -> expr
 with list_expr : Type :=
 | list_expr_nil : list_expr
 | list_expr_cons : expr -> list_expr -> list_expr
@@ -38,6 +38,7 @@ Inductive expr_hole : Type :=
 | expr_hole_assign_field2 : expr_hole -> string -> N -> expr_hole
 | expr_hole_call1 : expr -> string -> list N -> expr_hole -> list_expr -> expr_hole
 | expr_hole_call2 : expr_hole -> string -> list N -> expr_hole
+| expr_hole_ctor : string -> string -> list N -> expr_hole -> list_expr -> expr_hole
 .
 
 Inductive make_hole : expr -> expr -> expr_hole -> Prop :=
@@ -63,12 +64,15 @@ Inductive make_hole : expr -> expr -> expr_hole -> Prop :=
 
 | make_hole_call1: forall e eh e' e0 n ts es,
     make_hole e eh e' ->
-    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts ++ (e :: list_expr_uncoerce es))))
-    eh (expr_hole_call1 e0 n ts e' es)
+    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts ++ (e :: list_expr_uncoerce es)))) eh (expr_hole_call1 e0 n ts e' es)
 
 | make_hole_call2: forall e0 eh e0' n ts,
     make_hole e0 eh e0' ->
-    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts))) eh (expr_hole_call2 e0' n ts).
+    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts))) eh (expr_hole_call2 e0' n ts)
+
+| make_hole_ctor: forall e eh e' n m ts es,
+    make_hole e eh e' ->
+    make_hole (expr_ctor n m (list_expr_coerce (fmap expr_temp ts ++ (e :: list_expr_uncoerce es)))) eh (expr_hole_ctor n m ts e' es).
 
 Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
   match cps with
@@ -81,6 +85,7 @@ Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
   | expr_hole_assign_field2 cps' name t2 => expr_assign_field (fill_hole cps' filler) name (expr_temp t2)
   | expr_hole_call1 e0 name ts cps' es => expr_call e0 name (list_expr_coerce ((fmap expr_temp ts) ++ (fill_hole cps' filler) :: list_expr_uncoerce es))
   | expr_hole_call2 cps' name ts => expr_call (fill_hole cps' filler) name (list_expr_coerce (fmap expr_temp ts))
+  | expr_hole_ctor n m ts cps' es => expr_ctor n m (list_expr_coerce ((fmap expr_temp ts) ++ (fill_hole cps' filler) :: list_expr_uncoerce es))
   end.
 
 Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
@@ -94,6 +99,7 @@ Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
   | expr_hole_assign_field2 cps' name t2 => expr_hole_assign_field2 (compose_hole cps' b) name t2
   | expr_hole_call1 e0 name ts cps' es => expr_hole_call1 e0 name ts (compose_hole cps' b) es
   | expr_hole_call2 cps' name ts => expr_hole_call2 (compose_hole cps' b) name ts
+  | expr_hole_ctor n m ts cps' es => expr_hole_ctor n m ts (compose_hole cps' b) es
   end.
 
 (*
