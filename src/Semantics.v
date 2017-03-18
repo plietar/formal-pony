@@ -4,6 +4,7 @@ Require Import Coq.Lists.List.
 Require Import Coq.Program.Equality.
 Require Import Coq.Strings.String.
 
+Require Import common.
 Require Import Ast.
 Require Import Store.
 Require Import Entities.
@@ -11,11 +12,11 @@ Require Import Entities.
 Open Scope string_scope.
 
 Section step.
-Context (p: program).
+Context (P: program).
 
 Inductive step : heap * list frame * expr -> heap * list frame * expr -> Prop :=
 | step_hole : forall χ χ' φ φ' σ e e' ectx,
-    step (χ, φ::σ, e) (χ, φ'::σ, e') ->
+    step (χ, φ::σ, e) (χ', φ'::σ, e') ->
     step (χ, φ::σ, fill_hole ectx e) (χ', φ'::σ, fill_hole ectx e')
 
 | step_seq : forall χ σ t e,
@@ -54,12 +55,13 @@ Inductive step : heap * list frame * expr -> heap * list frame * expr -> Prop :=
     step (χ, φ::σ, expr_assign_field (expr_temp t) f (expr_temp t'))
            (χ', φ'::σ, expr_temp t'')
 
-| step_sync : forall χ φ φ' φ'' σ ectx t m e ts ω,
+| step_sync : forall χ φ φ' φ'' σ ectx t m e xs ts ω,
     v_addr ω = φ !!! t ->
+    Some (xs, e) = (obj <- χ !! ω; lookup_Mr P obj.(name) m) ->
 
     φ'' = {|
       method := m;
-      locals := <["this" := (v_addr ω)]>empty;
+      locals := <[* xs := map (φ !!!) ts ]>(<["this" := v_addr ω]>empty);
       hole := expr_hole_id
     |} ->
 
@@ -72,13 +74,16 @@ Inductive step : heap * list frame * expr -> heap * list frame * expr -> Prop :=
     step (χ, φ :: σ, fill_hole ectx (expr_call (expr_temp t) m (list_expr_temps ts)))
          (χ, φ'' :: φ' :: σ, e)
 
-| step_ctor : forall χ χ' ω φ φ' φ'' σ ectx kt k e ts,
+| step_ctor : forall χ χ' ω φ φ' φ'' σ ectx kt k e fs xs ts,
     not (ω ∈ heap_dom χ) ->
-    χ' = <[ω := {| name := kt; fields := empty |}]>χ ->
+    Some fs = lookup_Fs P kt ->
+    Some (xs, e) = lookup_Mr P kt k ->
+
+    χ' = <[ω := {| name := kt; fields := <[* fs := v_null ]>empty |}]>χ ->
 
     φ'' = {|
       method := k;
-      locals := <["this" := (v_addr ω)]>empty;
+      locals := <[* xs := map (φ !!!) ts ]>(<["this" := v_addr ω]>empty);
       hole := expr_hole_id
     |} ->
 
@@ -96,10 +101,16 @@ Inductive step : heap * list frame * expr -> heap * list frame * expr -> Prop :=
     φ'' = {|
         method := φ.(method);
         locals := <[t' := φ' !!! t]>φ.(locals);
-        hole := φ.(hole);
+        hole := expr_hole_id;
     |} ->
     step (χ, φ' :: φ :: σ, expr_temp t)
          (χ, φ'' :: σ, fill_hole φ.(hole) (expr_temp t'))
+
+| step_null : forall χ φ φ' σ t,
+    not (t ∈ φ) ->
+    φ' = <[t := v_null]>φ ->
+    step (χ, φ::σ, expr_null)
+         (χ, φ'::σ, expr_temp t)
 
 | step_field_null : forall χ φ σ t f,
     v_null = φ !!! t ->
