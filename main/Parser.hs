@@ -1,12 +1,14 @@
 module Parser where
 
+import Data.Either
 import Control.Monad
 import Text.ParserCombinators.Parsec
 import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 
-import Extracted (Expr(..), Ty(..), Cap(..), Program(..), Def(..), Item(..), list_expr_coerce)
+import Extracted (Expr(..), Ty(..), Cap(..), Ecap(..), Program(..), list_expr_coerce)
+import Extracted (Field, Func, Behv, Ctor, Class)
 
 languageDef =
    emptyDef { Token.commentStart    = "/*"
@@ -14,8 +16,8 @@ languageDef =
             , Token.commentLine     = "//"
             , Token.identStart      = lower
             , Token.identLetter     = alphaNum
-            , Token.reservedNames   = [ "recover", "class", "fun", "new", "var", "iso", "ref" ]
-            , Token.reservedOpNames = [ "=", ".", ";", "=>" ]
+            , Token.reservedNames   = [ "recover", "consume", "class", "fun", "new", "var", "iso", "ref", "null" ]
+            , Token.reservedOpNames = [ "=", ".", ";", "=>", "^" ]
             }
 
 lexer = Token.makeTokenParser languageDef
@@ -67,42 +69,78 @@ cap = Cap_iso <$ reserved "iso" <|>
       Cap_ref <$ reserved "ref" <|>
       Cap_tag <$ reserved "tag" <?> "capability"
 
+ecap :: Parser Ecap
+ecap = do
+  c <- cap
+  mod <- optionMaybe (reservedOp "^")
+  case (c, mod) of
+    (Cap_iso, Just ()) -> return Cap_iso_eph
+    (c, Just ()) -> return (Ecap_cap c)
+    (_ , Nothing) -> return (Ecap_cap c)
+
 ty :: Parser Ty
-ty = Ty_name <$> tyname <*> cap <?> "type"
+ty = Ty_name <$> tyname <*> ecap <?> "type"
 
 term :: Parser Expr
 term = parens expr <|>
+    Expr_null <$ reserved "null" <|>
     Expr_local <$> identifier <|>
-    Expr_ctor <$> tyname <* reservedOp "." <*> identifier <*> parens (list_expr_coerce <$> commaSep expr)
+    Expr_ctor <$> tyname <* reservedOp "." <*> identifier <*> parens (list_expr_coerce <$> commaSep expr) <|>
+    (\x -> Expr_assign_local x Expr_null) <$ reserved "consume" <*> identifier
 
 expr :: Parser Expr
 expr = buildExpressionParser operators term <?> "expression"
 
-item_var :: Parser Item
-item_var = reserved "var" >> Item_field <$> identifier <* colon <*> ty
+many_ooo2 :: Parser a -> Parser b -> Parser ([a], [b])
+many_ooo2 pa pb = partitionEithers <$> many (Left <$> pa <|> Right <$> pb)
 
-item_fun :: Parser Item
-item_fun = reserved "fun" >> Item_func <$> cap
-                                       <*> identifier
-                                       <*> parens (commaSep ((,) <$> identifier <* colon <*> ty))
-                                       <* colon
-                                       <*> ty
-                                       <* reservedOp "=>"
-                                       <*> expr
+many_ooo3 :: Parser a -> Parser b -> Parser c -> Parser (([a], [b]), [c])
+many_ooo3 pa pb pc = do
+  abcs <- many pabc
+  return (foldr f (([], []), []) abcs) 
+  where
+    pabc = (Left <$> pab <|> Right <$> pc)
+    pab = (Left <$> pa <|> Right <$> pb)
 
-item_new :: Parser Item
-item_new = reserved "new" >> Item_ctor <$> identifier
-                                       <*> parens (commaSep ((,) <$> identifier <* colon <*> ty))
-                                       <* reservedOp "=>"
-                                       <*> expr
-item :: Parser Item
-item = item_var <|> item_fun <|> item_new
+    f (Left (Left a)) ((as, bs), cs) = ((a:as, bs), cs)
+    f (Left (Right b)) ((as, bs), cs) = ((as, b:bs), cs)
+    f (Right c) ((as, bs), cs) = ((as, bs), c:cs)
 
-def :: Parser Def
-def = reserved "class" >> Def_class <$> tyname <*> many item
+item_field :: Parser Field
+item_field = reserved "var" >> (,) <$> identifier <* colon <*> ty
+
+item_func :: Parser Func
+item_func = do
+  reserved "fun"
+  receiver <- cap
+  m <- identifier
+  args <- parens (commaSep ((,) <$> identifier <* colon <*> ty))
+  colon
+  retty <- ty
+  reservedOp "=>"
+  body <- expr
+  return (m, (((receiver, args), retty), body))
+
+item_ctor :: Parser Ctor
+item_ctor = do
+  reserved "new"
+  m <- identifier
+  args <- parens (commaSep ((,) <$> identifier <* colon <*> ty))
+  reservedOp "=>"
+  body <- expr
+  return (m, (args, body))
+
+def_class :: Parser Class
+def_class = do
+  reserved "class"
+  c <- tyname
+  items <- many_ooo3 item_field item_ctor item_func
+  return (c, items)
 
 prog :: Parser Program
-prog = many def
+prog = do
+  cs <- many def_class
+  return ((([], []), cs), [])
 
 foo :: String -> Parser a -> Either ParseError a
 foo t p = parse p "" t

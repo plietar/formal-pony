@@ -13,14 +13,6 @@ vs = [x for m in modules for x in glob.glob(m + '/*.v')]
 if os.system('coqdep ' + Rs + ' ' + ' '.join(map(str, vs)) + ' > deps'): Exit(2)
 ParseDepends('deps')
 
-
-def add_qualified(target, source, env):
-  subprocess.check_call(['sed', '-e', 's/module .* where/module Extracted where/',
-                         '-e', '/^module/a\\\nimport qualified Data.Bits',
-                         '-e', '/^module/a\\\nimport qualified Data.Char'],
-                        stdin=open(str(source[0])),
-                        stdout=open(str(target[0]), 'w'))
-
 # Coq files
 for v in vs:
   env.Coq(v)
@@ -29,6 +21,8 @@ env.Depends('main/Extracted.pre.hs', 'src/Extract.vo')
 
 env.Command('main/Extracted.hs',
             'main/Extracted.pre.hs',
-            Action(add_qualified))
+            "(cat main/Extracted.in.hs && tail -n+15 < $SOURCE) > $TARGET")
+
+env.Depends('main/Extracted.hs', 'main/Extracted.in.hs')
 
 env.CoqIdeScript('coqidescript', [])

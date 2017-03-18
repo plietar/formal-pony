@@ -2,9 +2,13 @@ Require Import Coq.Strings.String.
 Require Import Coq.Lists.List.
 Require Import Coq.Numbers.BinNums.
 Require Import ch2o.prelude.prelude.
+Require Import common.
+
+Definition temp := N.
 
 Inductive expr : Type :=
-| expr_temp : N -> expr
+| expr_temp : temp -> expr
+| expr_null : expr
 | expr_seq : expr -> expr -> expr
 | expr_recover : expr -> expr
 | expr_local : string -> expr
@@ -28,6 +32,8 @@ Fixpoint list_expr_uncoerce (l: list_expr) := match l with
 | list_expr_cons h t => h :: (list_expr_uncoerce t)
 end.
 
+Definition list_expr_temps ts := list_expr_coerce (map expr_temp ts).
+
 Inductive expr_hole : Type :=
 | expr_hole_id : expr_hole
 | expr_hole_seq : expr_hole -> expr -> expr_hole
@@ -35,44 +41,11 @@ Inductive expr_hole : Type :=
 | expr_hole_assign_local : string -> expr_hole -> expr_hole
 | expr_hole_field : expr_hole -> string -> expr_hole
 | expr_hole_assign_field1 : expr -> string -> expr_hole -> expr_hole
-| expr_hole_assign_field2 : expr_hole -> string -> N -> expr_hole
-| expr_hole_call1 : expr -> string -> list N -> expr_hole -> list_expr -> expr_hole
-| expr_hole_call2 : expr_hole -> string -> list N -> expr_hole
-| expr_hole_ctor : string -> string -> list N -> expr_hole -> list_expr -> expr_hole
+| expr_hole_assign_field2 : expr_hole -> string -> temp -> expr_hole
+| expr_hole_call1 : expr -> string -> list temp -> expr_hole -> list_expr -> expr_hole
+| expr_hole_call2 : expr_hole -> string -> list temp -> expr_hole
+| expr_hole_ctor : string -> string -> list temp -> expr_hole -> list_expr -> expr_hole
 .
-
-Inductive make_hole : expr -> expr -> expr_hole -> Prop :=
-| make_hole_id: forall e, make_hole e e expr_hole_id
-
-| make_hole_seq: forall e1 e2 eh e1', make_hole e1 eh e1' ->
-    make_hole (expr_seq e1 e2) eh (expr_hole_seq e1' e2)
-
-| make_hole_recover: forall e1 eh e1', make_hole e1 eh e1' ->
-    make_hole (expr_recover e1) eh (expr_hole_recover e1')
-
-| make_hole_assign_local: forall n e1 eh e1', make_hole e1 eh e1' ->
-    make_hole (expr_assign_local n e1) eh (expr_hole_assign_local n e1')
-
-| make_hole_field: forall e1 n eh e1', make_hole e1 eh e1' ->
-    make_hole (expr_field e1 n) eh (expr_hole_field e1' n)
-
-| make_hole_assign_field1: forall e1 n e2 eh e2', make_hole e2 eh e2' ->
-    make_hole (expr_assign_field e1 n e2) eh (expr_hole_assign_field1 e1 n e2')
-
-| make_hole_assign_field2: forall e1 n t eh e1', make_hole e1 eh e1' ->
-    make_hole (expr_assign_field e1 n (expr_temp t)) eh (expr_hole_assign_field2 e1' n t)
-
-| make_hole_call1: forall e eh e' e0 n ts es,
-    make_hole e eh e' ->
-    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts ++ (e :: list_expr_uncoerce es)))) eh (expr_hole_call1 e0 n ts e' es)
-
-| make_hole_call2: forall e0 eh e0' n ts,
-    make_hole e0 eh e0' ->
-    make_hole (expr_call e0 n (list_expr_coerce (fmap expr_temp ts))) eh (expr_hole_call2 e0' n ts)
-
-| make_hole_ctor: forall e eh e' n m ts es,
-    make_hole e eh e' ->
-    make_hole (expr_ctor n m (list_expr_coerce (fmap expr_temp ts ++ (e :: list_expr_uncoerce es)))) eh (expr_hole_ctor n m ts e' es).
 
 Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
   match cps with
@@ -88,199 +61,67 @@ Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
   | expr_hole_ctor n m ts cps' es => expr_ctor n m (list_expr_coerce ((fmap expr_temp ts) ++ (fill_hole cps' filler) :: list_expr_uncoerce es))
   end.
 
-Fixpoint compose_hole (a: expr_hole) (b: expr_hole) : expr_hole :=
-  match a with
-  | expr_hole_id => b
-  | expr_hole_seq cps' e2 => expr_hole_seq (compose_hole cps' b) e2
-  | expr_hole_recover cps' => expr_hole_recover (compose_hole cps' b)
-  | expr_hole_assign_local name cps' => expr_hole_assign_local name (compose_hole cps' b)
-  | expr_hole_field cps' name => expr_hole_field (compose_hole cps' b) name
-  | expr_hole_assign_field1 e1 name cps' => expr_hole_assign_field1 e1 name (compose_hole cps' b)
-  | expr_hole_assign_field2 cps' name t2 => expr_hole_assign_field2 (compose_hole cps' b) name t2
-  | expr_hole_call1 e0 name ts cps' es => expr_hole_call1 e0 name ts (compose_hole cps' b) es
-  | expr_hole_call2 cps' name ts => expr_hole_call2 (compose_hole cps' b) name ts
-  | expr_hole_ctor n m ts cps' es => expr_hole_ctor n m ts (compose_hole cps' b) es
-  end.
-
 Inductive cap : Type :=
 | cap_iso : cap
 | cap_tag : cap
 | cap_ref : cap
+with ecap : Type :=
+| ecap_cap : cap -> ecap
+| cap_iso_eph : ecap
 .
+
+Coercion ecap_cap : cap >-> ecap.
 
 Inductive ty : Type :=
-| ty_name : string -> cap -> ty.
+| ty_name : string -> ecap -> ty.
 
-Inductive item : Type :=
-| item_field : string -> ty -> item
-| item_ctor : string -> list (string * ty) -> expr -> item
-| item_func : cap -> string -> list (string * ty) -> ty -> expr -> item
-| item_behv : string -> list (string * ty) -> expr -> item
-.
+Definition field : Type := string * ty.
+Definition ctor : Type := string * (list (string * ty) * expr).
+Definition func : Type := string * (cap * list (string * ty) * ty * expr).
+Definition behv : Type := string * (list (string * ty) * expr).
 
-Inductive item_stub : Type :=
-| item_stub_ctor : string -> list (string * ty) -> item_stub
-| item_stub_func : string -> list (string * ty) -> ty -> item_stub
-| item_stub_behv : string -> list (string * ty) -> item_stub
-.
+Definition ctor_stub : Type := string * (list (string * ty) * expr).
+Definition func_stub : Type := string * (cap * list (string * ty) * ty * expr).
+Definition behv_stub : Type := string * (list (string * ty) * expr).
 
-Inductive def : Type :=
-| def_class : string -> list item -> def
-| def_actor : string -> list item -> def
-| def_trait : string -> list item_stub -> def
-| def_iface : string -> list item_stub -> def
-.
+Definition class : Type := string * (list field * list ctor * list func).
+Definition actor : Type := string * (list field * list ctor * list func * list behv).
+Definition trait : Type := string * (list ctor_stub * list func_stub * list behv_stub).
+Definition iface : Type := string * (list ctor_stub * list func_stub * list behv_stub).
 
-Definition program : Type := list def.
+Definition program : Type := list trait * list iface * list class * list actor.
 
-Fixpoint lookup_class (ty: string) (its: list def) : option (list item) :=
-  match its with
-  | nil => None
-  | def_class name items :: tail =>
-      if string_dec ty name
-      then Some items
-      else lookup_class ty tail
-  | _ :: tail => lookup_class ty tail
+Section lookup.
+Context (P: program).
+
+Fixpoint lookup_P (ds: string) : option (list field * list ctor * list func * list behv) :=
+  let '(nts, sts, cts, ats) := P in
+  match cts !! ds, ats !! ds with
+  | Some (fs, ks, ms), _ => Some (fs, ks, ms, nil)
+  | None, Some (fs, ks, ms, bs) => Some (fs, ks, ms, bs)
+  | None, None => None
   end.
 
-Fixpoint lookup_method (m: string) (its: list item) : option (cap * list (string * ty) * ty * expr) :=
-  match its with
-  | nil => None
-  | item_func reccap name args retty body :: tail =>
-      if string_dec m name
-      then Some (reccap, args, retty, body)
-      else lookup_method m tail
-  | _ :: tail => lookup_method m tail
+Fixpoint lookup_Fs (ds: string) : option (list string) :=
+  '(fs, ks, ms, bs) <- lookup_P ds;
+  Some (map fst fs).
+
+Fixpoint lookup_F (ds f: string) : option ty :=
+  '(fs, ks, ms, bs) <- lookup_P ds;
+  fs !! f.
+
+Definition lookup_Md (ds n: string) : option (ty * list (string * ty) * ty) :=
+  '(_, ks, ms, bs) <- lookup_P ds;
+  '(args_ty, _) <- ks !! n;
+  Some (ty_name ds cap_ref, args_ty, ty_name ds cap_ref).
+
+Definition lookup_Mr (ds n: string) : option (list string * expr) :=
+  '(_, ks, ms, bs) <- lookup_P ds;
+  match ks !! n, ms !! n, bs !! n with
+  | Some (args_ty, e), _, _ => Some (map fst args_ty, e)
+  | None, Some (_, args_ty, _, e), _ => Some (map fst args_ty, e)
+  | None, None, Some (args_ty, e) => Some (map fst args_ty, e)
+  | None, None, None => None
   end.
 
-Fixpoint lookup_ctor (m: string) (its: list item) : option (list (string * ty) * expr) :=
-  match its with
-  | nil => None
-  | item_ctor name args body :: tail =>
-      if string_dec m name
-      then Some (args, body)
-      else lookup_ctor m tail
-  | _ :: tail => lookup_ctor m tail
-  end.
-
-Fixpoint lookup_field (f: string) (its: list item) : option ty :=
-  match its with
-  | nil => None
-  | item_field name ty :: tail =>
-      if string_dec f name
-      then Some ty
-      else lookup_field f tail
-  | _ :: tail => lookup_field f tail
-  end.
-
-Fixpoint lookup_fields (its: list item) : list (string * ty) :=
-  match its with
-  | nil => nil
-  | item_field name ty :: tail => (name, ty) :: lookup_fields tail
-  | _ :: tail => lookup_fields tail
-  end.
-
-
-(*
-Require Import Coq.Program.Equality.
-
-Lemma id_fill: forall e, fill_hole expr_hole_id e = e.
-Proof. auto. Qed.
-
-Lemma id_compose_left: forall h1, compose_hole expr_hole_id h1 = h1.
-Proof. auto. Qed.
-
-Lemma id_compose_right: forall h1, compose_hole h1 expr_hole_id = h1.
-Proof.
-induction 0.
-auto.
-simpl. rewrite IHh1. reflexivity.
-simpl. rewrite IHh1. reflexivity.
-simpl. rewrite IHh1. reflexivity.
-simpl. rewrite IHh1. reflexivity.
-simpl. rewrite IHh1. reflexivity.
-simpl. rewrite IHh1. reflexivity.
-simpl. rewrite IHh1. reflexivity.
-Qed.
-
-Lemma composition: forall h1 h2 e,
-  fill_hole h2 (fill_hole h1 e) = fill_hole (compose_hole h2 h1) e.
-Proof.
-intros.
-dependent induction h1.
-rewrite id_compose_right.
-rewrite id_fill.
-reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-
-dependent induction h2.
-rewrite id_fill. rewrite id_compose_left. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-simpl. rewrite <- IHh2. simpl. reflexivity.
-Qed.
-*)
-
+End lookup.

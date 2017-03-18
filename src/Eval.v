@@ -13,164 +13,192 @@ Require Import ch2o.prelude.base.
 
 Require Import common.
 Require Import Ast.
-(*Require Import Semantics.*)
+Require Import Semantics.
 Require Import Entities.
 
 Require Import Store.
 
 Open Scope string_scope.
 
-Fixpoint expr_size (e: expr) : nat :=
+Section eval.
+Context (P: program).
+
+Inductive redex : Type :=
+| redex_null : redex
+| redex_seq : temp -> expr -> redex
+| redex_recover : temp -> redex
+| redex_local : string -> redex
+| redex_assign_local : string -> temp -> redex
+| redex_field : temp -> string -> redex
+| redex_assign_field : temp -> string -> temp -> redex
+| redex_call : temp -> string -> list temp -> redex
+| redex_ctor : string -> string -> list temp -> redex
+.
+
+Fixpoint find_redex (e: expr) : (redex * expr_hole) + temp :=
   match e with
-  | expr_temp _ => 1
-  | expr_seq e1 e2 => 1 + expr_size e1 + expr_size e2
-  | expr_recover e => 1 + expr_size e
-  | expr_local _ => 1
-  | expr_assign_local _ e => 1 + expr_size e
-  | expr_field e _ => 1 + expr_size e
-  | expr_assign_field e1 _ e2 => 1 + expr_size e1 + expr_size e2
-  | expr_call e0 _ es => 1 + expr_size e0 + expr_list_size es
-  | expr_ctor _ _ es => 1 + expr_list_size es
-  end
-with expr_list_size es := match es with
-  | list_expr_nil => 0
-  | list_expr_cons e tail => expr_size e + expr_list_size tail
-end.
+  | expr_temp t => inr t
+  | expr_null => inl (redex_null, expr_hole_id)
+  | expr_local x => inl (redex_local x, expr_hole_id)
 
-Fixpoint eval' (p: program) (h: heap) (stack: list frame) (e: expr) (cps: expr_hole)
-  : option (heap * list frame * expr) :=
-  match stack, e with
-  | nil, _ => None
-  | (_ :: nil), expr_temp t => None
-
-  | (f :: f' :: stack'), expr_temp t =>
-    let cps := f'.(hole) in
-    let t' := fresh f' in
-    let value := f !!! t in
-    let f'' := {|
-      method := f'.(method);
-      locals := <[t' := value]>f'.(locals);
-      hole := expr_hole_id
-    |} in
-    Some (h, f'' :: stack', fill_hole cps (expr_temp t'))
-
-  | (f :: stack'), (expr_call e0 mname es) =>
-    match eval_args p h stack nil es (fun ts es' => compose_hole cps (expr_hole_call1 e0 mname ts expr_hole_id es')) with
-    | None => None
-    | Some (inl x) => Some x
-    | Some (inr ts) =>
-      match e0 with
-      | expr_temp t0 =>
-        match f !!! t0 with
-        | v_addr addr => 
-          obj <- h !! addr;
-          cls <- lookup_class obj.(name) p;
-          '(_, argnames, _, body) <- lookup_method mname cls;
-
-          let f'' := {|
-            method := mname;
-            locals := fold_left (fun f_ u => <[fst (fst u) := (f !!! snd u)]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
-            hole := expr_hole_id
-          |} in
-
-          let f' := {|
-            method := f.(method);
-            locals := f.(locals);
-            hole := cps
-          |} in
-
-          Some (h, f'' :: f' :: stack', body)
-
-        | v_null => Some (h, f :: stack', fill_hole cps (expr_temp t0))
-        end
-      | _ => eval' p h stack e0 (compose_hole cps (expr_hole_call2 expr_hole_id mname ts))
+  | expr_seq e1 e2 =>
+      match find_redex e1 with
+      | inl (r, ectx) => inl (r, expr_hole_seq ectx e2)
+      | inr t => inl (redex_seq t e2, expr_hole_id)
       end
-    end
 
-  | (f :: stack'), expr_ctor tyname ctor es =>
-    match eval_args p h stack nil es (fun ts es' => compose_hole cps (expr_hole_ctor tyname ctor ts expr_hole_id es')) with
-    | None => None
-    | Some (inl x) => Some x
-    | Some (inr ts) =>
-      cls <- lookup_class tyname p;
-      let fldnames := lookup_fields cls in
-      '(argnames, body) <- lookup_ctor ctor cls;
+  | expr_recover e1 =>
+      match find_redex e1 with
+      | inl (r, ectx) => inl (r, expr_hole_recover ectx)
+      | inr t => inl (redex_recover t, expr_hole_id)
+      end
 
-      let addr := Nfresh h in
-      let fields := fold_left (fun f_ k => <[fst k := v_null]>f_) fldnames empty in
-      let h' := <[ addr := {| name := tyname; fields := fields |} ]>h in
+  | expr_assign_local x e1 =>
+      match find_redex e1 with
+      | inl (r, ectx) => inl (r, expr_hole_assign_local x ectx)
+      | inr t => inl (redex_assign_local x t, expr_hole_id)
+      end
 
-      let f'' := {|
-        method := ctor;
-        locals := fold_left (fun f_ u => <[fst (fst u) := f !!! snd u]>f_) (zip argnames ts) (<["this" := v_addr addr]>empty);
+  | expr_field e1 x =>
+      match find_redex e1 with
+      | inl (r, ectx) => inl (r, expr_hole_field ectx x)
+      | inr t => inl (redex_field t x, expr_hole_id)
+      end
+
+  | expr_assign_field e1 x e2 =>
+      match find_redex e1, find_redex e2 with
+      | _, inl (r, ectx) => inl (r, expr_hole_assign_field1 e1 x ectx)
+      | inl (r, ectx), inr t2 => inl (r, expr_hole_assign_field2 ectx x t2)
+      | inr t1, inr t2 => inl (redex_assign_field t1 x t2, expr_hole_id)
+      end
+
+  | expr_call e0 n es =>
+      match find_redex e0, list_find_redex es nil with
+      | _, inl (r, ts, ectx, es') => inl (r, expr_hole_call1 e0 n ts ectx es')
+      | inl (r, ectx), inr ts => inl (r, expr_hole_call2 ectx n ts)
+      | inr t0, inr ts => inl (redex_call t0 n ts, expr_hole_id)
+      end
+
+  | expr_ctor kt k es =>
+      match list_find_redex es nil with
+      | inl (r, ts, ectx, es') => inl (r, expr_hole_ctor kt k ts ectx es')
+      | inr ts => inl (redex_ctor kt k ts, expr_hole_id)
+      end
+  end
+with 
+  list_find_redex (es: list_expr) (ts: list temp) : (redex * list temp * expr_hole * list_expr + list temp) :=
+  match es with
+  | list_expr_nil => inr ts
+  | list_expr_cons e es' =>
+      match find_redex e with
+      | inr t => list_find_redex es' (ts ++ [t])
+      | inl (r, ectx) => inl (r, ts, ectx, es')
+      end
+  end
+.
+
+
+Definition eval (χ: heap) (σ: list frame) (e: expr) : option (heap * list frame * expr) :=
+  match find_redex e, σ with
+  | inl (redex_null, ectx), (φ::σ') =>
+      let t := fresh φ in
+      let φ' := <[t := v_null]>φ in
+      Some (χ, φ'::σ', fill_hole ectx (expr_temp t))
+
+  | inl (redex_seq t e2, ectx), _ => Some (χ, σ, fill_hole ectx e2)
+  | inl (redex_recover t, ectx), _ => Some (χ, σ, fill_hole ectx (expr_temp t))
+  | inl (redex_local x, ectx), (φ::σ') =>
+      let t := fresh φ in
+      let φ' := <[t := φ !!! x]>φ in
+      Some (χ, φ'::σ', fill_hole ectx (expr_temp t))
+
+  | inl (redex_assign_local x t, ectx), (φ::σ') =>
+      let t' := fresh φ in
+      let φ' := <[t' := φ !!! x]>(<[x := φ !!! t]>φ) in
+      Some (χ, φ'::σ', fill_hole ectx (expr_temp t'))
+
+  | inl (redex_field t x, ectx), (φ::σ') =>
+      match φ !!! t with
+      | v_null => Some (χ, φ::σ', fill_hole ectx (expr_temp t))
+      | v_addr ω =>
+          let t' := fresh φ in
+          let φ' := <[t' := χ !!! (ω, x)]> φ in
+          Some (χ, φ'::σ', fill_hole ectx (expr_temp t'))
+      end
+
+  | inl (redex_assign_field t x t', ectx), (φ::σ') =>
+      match φ !!! t with
+      | v_null => Some (χ, φ::σ', fill_hole ectx (expr_temp t))
+      | v_addr ω =>
+          let t'' := fresh φ in
+          let φ' := <[t'' := χ !!! (ω, x)]> φ in
+          let χ' := <[(ω, x) := φ !!! t']>χ in
+          Some (χ', φ'::σ', fill_hole ectx (expr_temp t''))
+      end
+
+  | inl (redex_call t0 n ts, ectx), (φ::σ') =>
+      match φ !!! t0 with
+      | v_addr ω => 
+        obj <- χ !! ω;
+        '(xs, body) <- lookup_Mr P obj.(name) n;
+
+        let φ'' := {|
+          method := n;
+          locals := <[* xs := map (φ !!!) ts ]>(<["this" := v_addr ω]>empty);
+          hole := expr_hole_id
+        |} in
+
+        let φ' := {|
+          method := φ.(method);
+          locals := φ.(locals);
+          hole := ectx
+        |} in
+
+        Some (χ, φ'' :: φ' :: σ', body)
+
+      | v_null => Some (χ, φ :: σ', expr_temp t0)
+      end
+
+  | inl (redex_ctor kt k ts, ectx), (φ::σ') =>
+      fs <- lookup_Fs P kt;
+      '(xs, body) <- lookup_Mr P kt k;
+
+      let ω := Nfresh χ in
+      let fields := <[* fs := v_null ]>empty in
+      let χ' := <[ ω := {| name := kt; fields := fields |} ]>χ in
+
+      let φ'' := {|
+        method := k;
+        locals := <[* xs := map (φ !!!) ts ]>(<["this" := v_addr ω]>empty);
         hole := expr_hole_id
       |} in
 
-      let t := fresh f in
-
-      let f' := {|
-        method := f.(method);
-        locals := f.(locals);
-        hole := cps
+      let φ' := {|
+        method := φ.(method);
+        locals := φ.(locals);
+        hole := ectx
       |} in
 
-      Some (h', f'' :: f' :: stack', body)
-    end
+      Some (χ', φ'' :: φ' :: σ', body)
 
-  | (f :: stack'), expr_seq (expr_temp t) e' => Some (h, f :: stack', fill_hole cps e')
+  | inr t, (φ'::φ::σ') =>
+      let t' := fresh φ in
+      let φ'' := {|
+          method := φ.(method);
+          locals := <[ t' := φ' !!! t ]>φ.(locals);
+          hole := expr_hole_id
+      |} in
+      
+      Some (χ, φ'' :: σ', fill_hole φ.(hole) (expr_temp t'))
 
-  | (f :: stack'), expr_recover (expr_temp t) => Some (h, f :: stack', fill_hole cps (expr_temp t))
-
-  | (f :: stack'), expr_local name =>
-      let t := fresh f in
-      let f' := <[t := f !!! name]>f in
-
-      Some (h, f' :: stack', fill_hole cps (expr_temp t))
-
-  | (f :: stack'), expr_assign_local name (expr_temp t) =>
-      let t' := fresh f in
-      let f' := <[t' := f !!! name]>(<[name := f !!! t]>f) in
-
-      Some (h, f' :: stack', fill_hole cps (expr_temp t'))
-
-  | (f :: stack'), expr_field (expr_temp t) name =>
-    match f !!! t with
-    | v_addr addr => 
-      let t' := fresh f in
-      let f' := <[t' := h !!! (addr, name)]>f in
-
-      Some (h, f' :: stack', fill_hole cps (expr_temp t'))
-
-    | v_null => Some (h, f :: stack', fill_hole cps (expr_temp t))
-    end
-
-  | (f :: stack'), expr_assign_field (expr_temp t) name (expr_temp t') =>
-    match f !!! t with
-    | v_addr addr => 
-      let t'' := fresh f in
-      let f' := <[t'' := h !!! (addr, name)]>f in
-      let h' := <[(addr, name) := f !!! t']>h in
-
-      Some (h', f' :: stack', fill_hole cps (expr_temp t''))
-
-    | v_null => Some (h, f :: stack', fill_hole cps (expr_temp t))
-    end
-
-  | stack, expr_seq e1 e2 => eval'  p h stack e1 (compose_hole cps (expr_hole_seq expr_hole_id e2))
-  | stack, expr_recover e1 => eval'  p h stack e1 (compose_hole cps (expr_hole_recover expr_hole_id))
-
-  | stack, expr_assign_local name e1 => eval'  p h stack e1 (compose_hole cps (expr_hole_assign_local name expr_hole_id))
-  | stack, expr_field e1 name => eval'  p h stack e1 (compose_hole cps (expr_hole_field expr_hole_id name))
-  | stack, expr_assign_field e1 name (expr_temp t2) => eval'  p h stack e1 (compose_hole cps (expr_hole_assign_field2 expr_hole_id name t2))
-  | stack, expr_assign_field e1 name e2 => eval'  p h stack e2 (compose_hole cps (expr_hole_assign_field1 e1 name expr_hole_id))
-  end
-with
-  eval_args (p: program) (h: heap) (stack: list frame) (ts: list N) (es: list_expr) (cps: list N -> list_expr -> expr_hole) : option ((heap * list frame * expr) + list N) :=
-  match es with
-  | list_expr_nil => Some (inr ts)
-  | list_expr_cons (expr_temp t) tail => eval_args p h stack (ts ++ [t]) tail cps
-  | list_expr_cons e tail => fmap inl (eval' p h stack e (cps ts tail))
+  | inl (redex_null, _), [] => None
+  | inl (redex_local _, _), [] => None
+  | inl (redex_assign_local _ _, _), [] => None
+  | inl (redex_field _ _, _), [] => None
+  | inl (redex_assign_field _ _ _, _), [] => None
+  | inl (redex_call _ _ _, _), [] => None
+  | inl (redex_ctor _ _ _, _), [] => None
+  | inr _, [] => None
+  | inr _, [_] => None
   end.
-
-Definition eval (p: program) (h: heap) (stack: list frame) (e: expr) : option (heap * list frame * expr) :=
-  eval' p h stack e expr_hole_id.
+End eval.

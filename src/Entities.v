@@ -35,13 +35,13 @@ Instance frame_insert {K} `{l: Insert K value (localmap value)} : Insert K value
 Instance frame_elem_of : ElemOf local_id frame :=
   fun l f => elem_of l (dom localset f.(locals)).
 
-Instance frame_elem_of_temp : ElemOf N frame :=
+Instance frame_elem_of_temp : ElemOf temp frame :=
   fun t f => elem_of (TempId t) (dom localset f.(locals)).
 
 Instance frame_elem_of_var : ElemOf string frame :=
   fun x f => elem_of (SourceId x) (dom localset f.(locals)).
 
-Instance frame_fresh_temp : Fresh N frame :=
+Instance frame_fresh_temp : Fresh temp frame :=
   fun f => fresh f.(locals).
 
 Record object : Type := {
@@ -50,28 +50,32 @@ Record object : Type := {
 }.
 
 Definition heap := Nmap object.
+Definition heap_dom (χ: heap) : Nset := dom Nset χ.
 
 Instance heap_field_lookup : Lookup (addr * string) value heap := {
-  lookup idx h :=
-    let (addr, name) := idx in
-    match h !! addr with
-    | Some object => object.(fields) !! name
+  lookup idx χ :=
+    let (ω, f) := idx in
+    match χ !! ω with
+    | Some obj => obj.(fields) !! f
     | None => None
     end
 }.
 
 Instance heap_field_insert : Insert (addr * string) value heap := {
-  insert idx v h :=
-    let (addr, field) := idx in
+  insert idx v χ :=
+    let (ω, f) := idx in
 
     alter (fun obj => {|
       name := obj.(name);
-      fields := insert field v obj.(fields)
-    |}) addr h
+      fields := insert f v obj.(fields)
+    |}) ω χ
 }.
 
 Class LookupDefault (K A M : Type) := lookup_default: K -> M -> A.
 Notation "m !!! i" := (lookup_default i m) (at level 20) : C_scope.
+Notation "(!!!)" := lookup_default (only parsing) : C_scope.
+Notation "( m !!!)" := (λ i, lookup_default i m) (only parsing) : C_scope.
+Notation "(!!! i )" := (lookup_default i) (only parsing) : C_scope.
 
 Instance value_lookup_default {K M} `{l : Lookup K value M} : LookupDefault K value M :=
   fun k m => from_option v_null (lookup k m).

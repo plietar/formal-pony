@@ -1,5 +1,6 @@
 Require Import Eval.
 Require Import Ast.
+Require Import common.
 (*Require Import Semantics.*)
 Require Import checker.
 Require Import Entities.
@@ -35,11 +36,18 @@ Definition fields_to_list (m: stringmap value): list (string * value) :=
 
 Extraction Language Haskell.
 Set Extraction KeepSingleton.
+
+Extract Inlined Constant trace => "Debug.Trace.traceShow".
+Extract Inlined Constant traceId => "Debug.Trace.traceShowId".
+
 Extraction "main/Extracted.pre.hs"
     init eval ck_expr ty_ctx
     frame local_id
     heap_to_list fields_to_list
     N_to_nat P_to_nat
     Nto_list Pto_list
-    stringmap_to_list.
+    stringmap_to_list
+    list_expr_coerce
+    list_expr_uncoerce
+    ty wf_program.
 
