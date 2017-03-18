@@ -8,7 +8,7 @@ import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 
 import Extracted (Expr(..), Ty(..), Cap(..), Ecap(..), Program(..), list_expr_coerce)
-import Extracted (Field, Func, Behv, Ctor, Class)
+import Extracted (Field, Func, Func_stub, Behv, Behv_stub, Ctor, Ctor_stub, Class, Iface, Trait)
 
 languageDef =
    emptyDef { Token.commentStart    = "/*"
@@ -16,7 +16,10 @@ languageDef =
             , Token.commentLine     = "//"
             , Token.identStart      = lower
             , Token.identLetter     = alphaNum
-            , Token.reservedNames   = [ "recover", "consume", "class", "fun", "new", "var", "iso", "ref", "null" ]
+            , Token.reservedNames   = [ "recover", "consume", "null"
+                                      , "class", "actor", "interface", "trait"
+                                      , "fun", "new", "var", "is"
+                                      , "iso", "ref" ]
             , Token.reservedOpNames = [ "=", ".", ";", "=>", "^" ]
             }
 
@@ -109,38 +112,76 @@ many_ooo3 pa pb pc = do
 item_field :: Parser Field
 item_field = reserved "var" >> (,) <$> identifier <* colon <*> ty
 
-item_func :: Parser Func
-item_func = do
+item_body :: Parser (String, a) -> Parser (String, (a, Expr))
+item_body p = do
+  (m, info) <- p
+  reservedOp "=>"
+  body <- expr
+  return (m, (info, body))
+
+item_func_stub :: Parser Func_stub
+item_func_stub = do
   reserved "fun"
   receiver <- cap
   m <- identifier
   args <- parens (commaSep ((,) <$> identifier <* colon <*> ty))
   colon
   retty <- ty
-  reservedOp "=>"
-  body <- expr
-  return (m, (((receiver, args), retty), body))
+  return (m, ((receiver, args), retty))
 
-item_ctor :: Parser Ctor
-item_ctor = do
+item_ctor_stub :: Parser Ctor_stub
+item_ctor_stub = do
   reserved "new"
   m <- identifier
   args <- parens (commaSep ((,) <$> identifier <* colon <*> ty))
-  reservedOp "=>"
-  body <- expr
-  return (m, (args, body))
+  return (m, args)
+
+item_behv_stub :: Parser Behv_stub
+item_behv_stub = do
+  reserved "be"
+  m <- identifier
+  args <- parens (commaSep ((,) <$> identifier <* colon <*> ty))
+  return (m, args)
+
+item_func :: Parser Func
+item_func = item_body item_func_stub
+
+item_ctor :: Parser Ctor
+item_ctor = item_body item_ctor_stub
+
+item_behv :: Parser Behv
+item_behv = item_body item_behv_stub
+
+def_abstract :: String -> Parser (String, ((([Ctor_stub], [Func_stub]), [Behv_stub]), [String]))
+def_abstract kw = do
+  reserved kw
+  {- optional cap -}
+  c <- tyname
+  parents <- option [] (reserved "is" >> (commaSep tyname))
+  items <- many_ooo3 item_ctor_stub item_func_stub item_behv_stub
+  return (c, (items, parents))
+
+
+def_iface :: Parser Iface
+def_iface = def_abstract "interface"
+
+def_trait :: Parser Trait
+def_trait = def_abstract "trait"
 
 def_class :: Parser Class
 def_class = do
   reserved "class"
+  {- optional cap -}
   c <- tyname
+  parents <- option [] (reserved "is" >> (commaSep tyname))
   items <- many_ooo3 item_field item_ctor item_func
-  return (c, items)
+  return (c, (items, parents))
 
 prog :: Parser Program
 prog = do
   cs <- many def_class
-  return ((([], []), cs), [])
+  defs <- many_ooo3 def_trait def_iface def_class
+  return (defs, [])
 
 foo :: String -> Parser a -> Either ParseError a
 foo t p = parse p "" t

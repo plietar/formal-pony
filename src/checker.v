@@ -59,6 +59,7 @@ Instance viewpoint_cap_ty: Viewpoint ecap ty ty := {
       c' <- a ▷ c;
       Some (ty_name n (ecap_cap c'))
   | ty_name n (ecap_iso_eph) => None
+  | ty_null => Some (ty_null)
   end
 }.
 
@@ -68,6 +69,7 @@ Instance extract_viewpoint_cap_ty: ExtractViewpoint ecap ty ty := {
       c' <- a ▶ c;
       Some (ty_name n c')
   | ty_name n (ecap_iso_eph) => None
+  | ty_null => Some (ty_null)
   end
 }.
 
@@ -92,19 +94,20 @@ Instance unalias_cap : Unalias ecap := {
 Instance alias_ty : Alias ty := {
   alias a := match a with
   | ty_name n c => ty_name n (alias c)
+  | ty_null => ty_null
   end
 }.
 
 Instance unalias_ty : Unalias ty := {
   unalias a := match a with
   | ty_name n c => ty_name n (unalias c)
+  | ty_null => ty_null
   end
 }.
 
 Instance subtype_cap : Subtype ecap := {
-  is_subtype a b :=
-    trace (a, b) $
-    match a, b with
+  is_subtype sub super :=
+    match sub, super with
     | cap_iso_eph, _ => true
     | cap_iso, cap_iso => true
     | cap_ref, cap_ref => true
@@ -115,19 +118,30 @@ Instance subtype_cap : Subtype ecap := {
 
 Definition string_beq a b := if string_dec a b then true else false.
 
-Instance subtype_ty : Subtype ty := {
-  is_subtype sub super :=
-    trace (sub, super) $
-    match sub, super with
-    | ty_name name_sub cap_sub, ty_name name_super cap_super =>
-        if string_beq name_sub name_super || string_beq name_super "Any" || string_beq name_sub "Null"
-        then is_subtype cap_sub cap_super
-        else false
-    end
-}.
-
 Section checker.
 Context (P: program).
+
+Fixpoint is_subclass (maxdepth: nat) (sub super: string) : bool :=
+  trace (sub, super) $
+  if string_beq sub super
+  then true else
+  match maxdepth, lookup_Is P sub with
+  | S maxdepth', Some is => existsb (λ n, is_subclass maxdepth' n super) is
+  | O, _ => false
+  | _, None => false
+  end.
+
+Instance subtype_ty : Subtype ty := {
+  is_subtype sub super :=
+    match sub, super with
+    | ty_name name_sub cap_sub, ty_name name_super cap_super =>
+        if is_subclass 100 name_sub name_super
+        then is_subtype cap_sub cap_super
+        else false
+    | ty_null, _ => true
+    | _, ty_null => false
+    end
+}.
 
 Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
   let ck_alias (e: expr) (expected: ty) : option unit :=
@@ -137,7 +151,7 @@ Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
     else None in
 
   match e with
-  | expr_null => Some (ty_name "Null" cap_iso_eph)
+  | expr_null => Some ty_null
 
   | expr_seq e1 e2 =>
       ty1 <- ck_expr Γ e1;
@@ -157,6 +171,7 @@ Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
       | ty_name ds cap =>
           field_ty <- lookup_F P ds f;
           cap ▷ field_ty
+      | ty_null => None
       end
 
   | expr_assign_field e f e' =>
@@ -165,15 +180,15 @@ Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
       | ty_name ds cap =>
           field_ty <- lookup_F P ds f;
           _ <- ck_alias e' field_ty;
-          (*cap ▶ field_ty*)
-          Some field_ty
+          cap ▶ field_ty
+      | ty_null => None
       end
 
   | expr_ctor kt k es =>
-      '(_, args, _) <- lookup_Md P kt k;
+      '(_, args, retty) <- lookup_Md P kt k;
       _ <- ck_args Γ es (map snd args);
 
-      Some (ty_name kt cap_ref)
+      Some retty
 
   | expr_call e0 m es =>
       baset <- ck_expr Γ e0;
@@ -183,6 +198,7 @@ Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
           _ <- ck_args Γ es (map snd args);
 
           Some retty
+      | ty_null => None
       end
 
   | _ => None
@@ -222,7 +238,7 @@ Definition wf_func (ds: string) (mt: func) : option unit :=
   wf_method m receiver args_ty ret_ty body.
 
 Definition wf_class (ct : class) : option unit :=
-  let '(ds, (fs, ks, ms)) := ct in
+  let '(ds, (fs, ks, ms, is)) := ct in
   _ <- mapM (wf_ctor ds) ks;
   _ <- mapM (wf_func ds) ms;
   Some ().

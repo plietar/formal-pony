@@ -73,55 +73,111 @@ with ecap : Type :=
 Coercion ecap_cap : cap >-> ecap.
 
 Inductive ty : Type :=
-| ty_name : string -> ecap -> ty.
+| ty_name : string -> ecap -> ty
+| ty_null : ty.
 
 Definition field : Type := string * ty.
 Definition ctor : Type := string * (list (string * ty) * expr).
 Definition func : Type := string * (cap * list (string * ty) * ty * expr).
 Definition behv : Type := string * (list (string * ty) * expr).
 
-Definition ctor_stub : Type := string * (list (string * ty) * expr).
-Definition func_stub : Type := string * (cap * list (string * ty) * ty * expr).
-Definition behv_stub : Type := string * (list (string * ty) * expr).
+Definition ctor_stub : Type := string * (list (string * ty)).
+Definition func_stub : Type := string * (cap * list (string * ty) * ty).
+Definition behv_stub : Type := string * (list (string * ty)).
 
-Definition class : Type := string * (list field * list ctor * list func).
-Definition actor : Type := string * (list field * list ctor * list func * list behv).
-Definition trait : Type := string * (list ctor_stub * list func_stub * list behv_stub).
-Definition iface : Type := string * (list ctor_stub * list func_stub * list behv_stub).
+Definition class : Type := string * (list field * list ctor * list func * list string).
+Definition actor : Type := string * (list field * list ctor * list func * list behv * list string).
+Definition trait : Type := string * (list ctor_stub * list func_stub * list behv_stub * list string).
+Definition iface : Type := string * (list ctor_stub * list func_stub * list behv_stub * list string).
 
 Definition program : Type := list trait * list iface * list class * list actor.
 
 Section lookup.
 Context (P: program).
 
-Fixpoint lookup_P (ds: string) : option (list field * list ctor * list func * list behv) :=
+Definition lookup_P (ds: string) : option (list field * list ctor * list func * list behv * list string + list ctor_stub * list func_stub * list behv_stub * list string) :=
   let '(nts, sts, cts, ats) := P in
-  match cts !! ds, ats !! ds with
-  | Some (fs, ks, ms), _ => Some (fs, ks, ms, nil)
-  | None, Some (fs, ks, ms, bs) => Some (fs, ks, ms, bs)
-  | None, None => None
+  match nts !! ds, sts !! ds, cts !! ds, ats !! ds with
+  | Some (ks, ms, bs, is), _, _, _ => Some (inr (ks, ms, bs, is))
+  | None, Some (ks, ms, bs, is), _, _ => Some (inr (ks, ms, bs, is))
+  | None, None, Some (fs, ks, ms, is), _ => Some (inl (fs, ks, ms, nil, is))
+  | None, None, None, Some (fs, ks, ms, bs, is) => Some (inl (fs, ks, ms, bs, is))
+  | None, None, None, None => None
   end.
 
-Fixpoint lookup_Fs (ds: string) : option (list string) :=
-  '(fs, ks, ms, bs) <- lookup_P ds;
-  Some (map fst fs).
+Definition lookup_Fs (ds: string) : option (list string) :=
+  match lookup_P ds with
+  | Some (inl (fs, ks, ms, bs, is)) => Some (map fst fs)
+  | Some (inr _) => None
+  | None => None
+  end.
 
-Fixpoint lookup_F (ds f: string) : option ty :=
-  '(fs, ks, ms, bs) <- lookup_P ds;
-  fs !! f.
-
-Definition lookup_Md (ds n: string) : option (ty * list (string * ty) * ty) :=
-  '(_, ks, ms, bs) <- lookup_P ds;
-  '(args_ty, _) <- ks !! n;
-  Some (ty_name ds cap_ref, args_ty, ty_name ds cap_ref).
+Definition lookup_F (ds f: string) : option ty :=
+  match lookup_P ds with
+  | Some (inl (fs, ks, ms, bs, is)) => fs !! f
+  | Some (inr _) => None
+  | None => None
+  end.
 
 Definition lookup_Mr (ds n: string) : option (list string * expr) :=
-  '(_, ks, ms, bs) <- lookup_P ds;
-  match ks !! n, ms !! n, bs !! n with
-  | Some (args_ty, e), _, _ => Some (map fst args_ty, e)
-  | None, Some (_, args_ty, _, e), _ => Some (map fst args_ty, e)
-  | None, None, Some (args_ty, e) => Some (map fst args_ty, e)
-  | None, None, None => None
+  match lookup_P ds with
+  | Some (inl (fs, ks, ms, bs, is)) =>
+      match ks !! n, ms !! n, bs !! n with
+      | Some (args_ty, e), _, _ => Some (map fst args_ty, e)
+      | None, Some (_, args_ty, _, e), _ => Some (map fst args_ty, e)
+      | None, None, Some (args_ty, e) => Some (map fst args_ty, e)
+      | None, None, None => None
+      end
+
+  | Some (inr _) => None
+  | None => None
+  end.
+
+Definition lookup_Is (ds: string) : option (list string) :=
+  match lookup_P ds with
+  | Some (inl (fs, ks, ms, bs, is)) => Some is
+  | Some (inr (ks, ms, bs, is)) => Some is
+  | None => None
+  end.
+
+Fixpoint lookup_Ks (maxdepth: nat) (ds: string) : option (list ctor_stub) :=
+  match maxdepth, lookup_P ds with
+  | S _, Some (inl (fs, ks, ms, bs, is)) =>
+      Some (map (λ kt, (fst kt, fst (snd kt))) ks)
+
+  | S maxdepth', Some (inr (ks, ms, bs, is)) =>
+      ks' <- concatMapM (lookup_Ks maxdepth') is;
+      Some (ks ++ ks')
+
+  | S _, None => None
+  | O, _ => None
+  end.
+
+Fixpoint lookup_Ms (maxdepth: nat) (ds: string) : option (list func_stub) :=
+  match maxdepth, lookup_P ds with
+  | S _, Some (inl (fs, ks, ms, bs, is)) =>
+      Some (map (λ mt, (fst mt, fst (snd mt))) ms)
+
+  | S maxdepth', Some (inr (ks, ms, bs, is)) =>
+      ms' <- concatMapM (lookup_Ms maxdepth') is;
+      Some (ms ++ ms')
+
+  | S _, None => None
+  | O, _ => None
+  end.
+
+Definition lookup_Md (ds n: string) : option (ty * list (string * ty) * ty) :=
+  ks <- lookup_Ks 1000 ds;
+  ms <- lookup_Ms 1000 ds;
+
+  match ks !! n, ms !! n with
+  | Some args_ty, _ =>
+      Some (ty_name ds cap_ref, args_ty, ty_name ds cap_ref)
+
+  | None, Some (reccap, args_ty, retty) =>
+      Some (ty_name ds (ecap_cap reccap), args_ty, retty)
+
+  | None, None => None
   end.
 
 End lookup.

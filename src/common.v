@@ -70,5 +70,11 @@ Fixpoint mapM {A B: Type} {M: Type -> Type} {r: MRet M} {b: MBind M} (f: A -> M 
   | nil => mret nil
   end.
 
+Fixpoint concatMapM {A B: Type} {M: Type -> Type} {r: MRet M} {b: MBind M} (f: A -> M (list B)) (xs: list A) : M (list B) :=
+  match xs with
+  | x::tail => f x >>= (λ y, concatMapM f tail >>= (λ ys, mret (y ++ ys)))
+  | nil => mret nil
+  end.
+
 Definition trace {A B: Type} (_: A) (x: B) := x.
 Definition traceId {A: Type} (x: A) := x.

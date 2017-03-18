@@ -57,6 +57,7 @@ instance Show Extracted.Ecap where
 
 instance Show Extracted.Ty where
   show (Extracted.Ty_name name cap) = name ++ " " ++ show cap
+  show (Extracted.Ty_null) = "null"
 
 instance Show Extracted.Object where
   show (Extracted.Build_object name fields) =
