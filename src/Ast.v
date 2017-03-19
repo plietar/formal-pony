@@ -95,6 +95,22 @@ Definition program : Type := list trait * list iface * list class * list actor.
 Section lookup.
 Context (P: program).
 
+Definition lookup_is_trait (ds: string) : bool :=
+  let '(nts, sts, cts, ats) := P in
+  if decide (is_Some (nts !! ds)) then true else false.
+
+Definition lookup_is_interface (ds: string) : bool :=
+  let '(nts, sts, cts, ats) := P in
+  if decide (is_Some (sts !! ds)) then true else false.
+
+Definition lookup_is_class (ds: string) : bool :=
+  let '(nts, sts, cts, ats) := P in
+  if decide (is_Some (cts !! ds)) then true else false.
+
+Definition lookup_is_actor (ds: string) : bool :=
+  let '(nts, sts, cts, ats) := P in
+  if decide (is_Some (ats !! ds)) then true else false.
+
 Definition lookup_P (ds: string) : option (list field * list ctor * list func * list behv * list string + list ctor_stub * list func_stub * list behv_stub * list string) :=
   let '(nts, sts, cts, ats) := P in
   match nts !! ds, sts !! ds, cts !! ds, ats !! ds with

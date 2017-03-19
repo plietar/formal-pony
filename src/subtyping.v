@@ -52,13 +52,14 @@ Program Fixpoint subtyping (P: program) (assumes: list (string * string) | assum
         if decide (is_Some (subtype_nominal is))
         then Some () else
 
-        if decide (is_Some (lookup_P P sub_name) ∧ is_Some (lookup_P P super_name))
+        if lookup_is_interface P super_name
         then
-          let assumes' := ((sub_name, super_name)::assumes) in
-          subtype_structural' (subtyping P assumes') sub_name super_name
-        else
-
-        None
+          if decide (is_Some (lookup_P P sub_name) ∧ is_Some (lookup_P P super_name))
+          then
+            let assumes' := ((sub_name, super_name)::assumes) in
+            subtype_structural' (subtyping P assumes') sub_name super_name
+          else None
+        else None
     end
   in
 

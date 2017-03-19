@@ -34,8 +34,9 @@ multiline = liftIO (multiline' [])
 load :: String -> Repl ()
 load contents = do
   prog <- parser Parser.prog contents
-  liftIO (print (Extracted.wf_program prog))
-  liftIO (print prog)
+  case Extracted.wf_program prog of
+    Just () -> return ()
+    Nothing -> throwError "invalid program"
   put (ST prog init_heap init_stack init_tyctx)
 
 loadFile :: FilePath -> Repl ()
@@ -147,5 +148,5 @@ main = do
       catchError (repl line) (\err -> liftIO (putStrLn err))
 
   case result of
-    Left err -> putStrLn ("Fatal error:" ++ err)
+    Left err -> putStrLn ("Fatal error: " ++ err)
     Right () -> return ()
