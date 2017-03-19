@@ -63,11 +63,15 @@ Fixpoint fill_hole (cps: expr_hole) (filler: expr) : expr :=
 
 Inductive cap : Type :=
 | cap_iso : cap
-| cap_tag : cap
+| cap_trn : cap
 | cap_ref : cap
+| cap_val : cap
+| cap_box : cap
+| cap_tag : cap
 with ecap : Type :=
 | ecap_cap : cap -> ecap
 | cap_iso_eph : ecap
+| cap_trn_eph : ecap
 .
 
 Coercion ecap_cap : cap >-> ecap.

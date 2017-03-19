@@ -7,7 +7,7 @@ import Text.ParserCombinators.Parsec.Expr
 import Text.ParserCombinators.Parsec.Language
 import qualified Text.ParserCombinators.Parsec.Token as Token
 
-import Extracted (Expr(..), Ty(..), Cap(..), Ecap(..), Program(..), list_expr_coerce)
+import Extracted (Expr(..), Ty(..), Cap(..), Ecap(..), Program(..), List_expr(..), list_expr_coerce)
 import Extracted (Field, Func, Func_stub, Behv, Behv_stub, Ctor, Ctor_stub, Class, Iface, Trait)
 
 languageDef =
@@ -84,11 +84,17 @@ ecap = do
 ty :: Parser Ty
 ty = Ty_name <$> tyname <*> ecap <?> "type"
 
+expr_ctor :: Parser Expr
+expr_ctor = do
+  kt <- tyname
+  (k, es) <- option ("create", List_expr_nil) ((,) <$ reservedOp "." <*> identifier <*> parens (list_expr_coerce <$> commaSep expr))
+  return (Expr_ctor kt k es)
+
 term :: Parser Expr
 term = parens expr <|>
     Expr_null <$ reserved "null" <|>
     Expr_local <$> identifier <|>
-    Expr_ctor <$> tyname <* reservedOp "." <*> identifier <*> parens (list_expr_coerce <$> commaSep expr) <|>
+    expr_ctor <|>
     (\x -> Expr_assign_local x Expr_null) <$ reserved "consume" <*> identifier
 
 expr :: Parser Expr
@@ -122,7 +128,7 @@ item_body p = do
 item_func_stub :: Parser Func_stub
 item_func_stub = do
   reserved "fun"
-  receiver <- cap
+  receiver <- option Cap_box cap
   m <- identifier
   args <- parens (commaSep ((,) <$> identifier <* colon <*> ty))
   colon

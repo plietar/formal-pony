@@ -20,37 +20,92 @@ Notation "a ▶ b" := (extract_viewpoint a b) (at level 60, right associativity)
 Class Alias (A: Type) := alias: A -> A.
 Class Unalias (A: Type) := unalias: A -> A.
 
-Instance viewpoint_cap: Viewpoint ecap cap cap := {
+Instance viewpoint_cap: Viewpoint ecap cap ecap := {
   adapt_viewpoint a b := match a, b with
-  | cap_iso_eph, cap_iso => Some cap_iso
-  | cap_iso_eph, cap_ref => Some cap_iso
+  | cap_iso_eph, cap_iso => Some cap_iso_eph
+  | cap_iso_eph, cap_trn => Some cap_iso_eph
+  | cap_iso_eph, cap_ref => Some cap_iso_eph
+  | cap_iso_eph, cap_val => Some (ecap_cap cap_val)
+  | cap_iso_eph, cap_box => Some (ecap_cap cap_val)
 
-  | cap_iso, cap_iso => Some cap_iso
-  | cap_iso, cap_ref => Some cap_iso
+  | cap_iso, cap_iso => Some (ecap_cap cap_iso)
+  | cap_iso, cap_trn => Some (ecap_cap cap_iso)
+  | cap_iso, cap_ref => Some (ecap_cap cap_iso)
+  | cap_iso, cap_val => Some (ecap_cap cap_val)
+  | cap_iso, cap_box => Some (ecap_cap cap_tag)
 
-  | cap_ref, cap_iso => Some cap_iso
-  | cap_ref, cap_ref => Some cap_ref
+  | cap_trn_eph, cap_iso => Some cap_iso_eph
+  | cap_trn_eph, cap_trn => Some cap_trn_eph
+  | cap_trn_eph, cap_ref => Some cap_trn_eph
+  | cap_trn_eph, cap_val => Some (ecap_cap cap_val)
+  | cap_trn_eph, cap_box => Some (ecap_cap cap_val)
+
+  | cap_trn, cap_iso => Some (ecap_cap cap_iso)
+  | cap_trn, cap_trn => Some (ecap_cap cap_trn)
+  | cap_trn, cap_ref => Some (ecap_cap cap_trn)
+  | cap_trn, cap_val => Some (ecap_cap cap_val)
+  | cap_trn, cap_box => Some (ecap_cap cap_box)
+
+  | cap_ref, cap_iso => Some (ecap_cap cap_iso)
+  | cap_ref, cap_trn => Some (ecap_cap cap_trn)
+  | cap_ref, cap_ref => Some (ecap_cap cap_ref)
+  | cap_ref, cap_val => Some (ecap_cap cap_val)
+  | cap_ref, cap_box => Some (ecap_cap cap_box)
+
+  | cap_val, cap_iso => Some (ecap_cap cap_val)
+  | cap_val, cap_trn => Some (ecap_cap cap_val)
+  | cap_val, cap_ref => Some (ecap_cap cap_val)
+  | cap_val, cap_val => Some (ecap_cap cap_val)
+  | cap_val, cap_box => Some (ecap_cap cap_val)
+
+  | cap_box, cap_iso => Some (ecap_cap cap_tag)
+  | cap_box, cap_trn => Some (ecap_cap cap_box)
+  | cap_box, cap_ref => Some (ecap_cap cap_box)
+  | cap_box, cap_val => Some (ecap_cap cap_val)
+  | cap_box, cap_box => Some (ecap_cap cap_box)
 
   | cap_tag, _ => None
-  | _, cap_tag => Some cap_tag
+  | _, cap_tag => Some (ecap_cap cap_tag)
   end
 }.
 
 Instance extract_viewpoint_cap: ExtractViewpoint ecap cap ecap := {
   extract_viewpoint a b := match a, b with
   | cap_iso_eph, cap_iso => Some cap_iso_eph
+  | cap_iso_eph, cap_trn => Some cap_iso_eph
   | cap_iso_eph, cap_ref => Some cap_iso_eph
-  | cap_iso_eph, cap_tag => Some (ecap_cap cap_tag)
+  | cap_iso_eph, cap_val => Some (ecap_cap cap_val)
+  | cap_iso_eph, cap_box => Some (ecap_cap cap_val)
 
   | cap_iso, cap_iso => Some cap_iso_eph
+  | cap_iso, cap_trn => Some (ecap_cap cap_val)
   | cap_iso, cap_ref => Some (ecap_cap cap_tag)
-  | cap_iso, cap_tag => Some (ecap_cap cap_tag)
+  | cap_iso, cap_val => Some (ecap_cap cap_val)
+  | cap_iso, cap_box => Some (ecap_cap cap_tag)
+
+  | cap_trn_eph, cap_iso => Some cap_iso_eph
+  | cap_trn_eph, cap_trn => Some cap_trn_eph
+  | cap_trn_eph, cap_ref => Some cap_trn_eph
+  | cap_trn_eph, cap_val => Some (ecap_cap cap_val)
+  | cap_trn_eph, cap_box => Some (ecap_cap cap_val)
+
+  | cap_trn, cap_iso => Some cap_iso_eph
+  | cap_trn, cap_trn => Some (ecap_cap cap_val)
+  | cap_trn, cap_ref => Some (ecap_cap cap_box)
+  | cap_trn, cap_val => Some (ecap_cap cap_val)
+  | cap_trn, cap_box => Some (ecap_cap cap_box)
 
   | cap_ref, cap_iso => Some cap_iso_eph
+  | cap_ref, cap_trn => Some cap_trn_eph
   | cap_ref, cap_ref => Some (ecap_cap cap_ref)
-  | cap_ref, cap_tag => Some (ecap_cap cap_tag)
+  | cap_ref, cap_val => Some (ecap_cap cap_val)
+  | cap_ref, cap_box => Some (ecap_cap cap_box)
 
+  | cap_val, _ => None
+  | cap_box, _ => None
   | cap_tag, _ => None
+
+  | _, cap_tag => Some (ecap_cap cap_tag)
   end
 }.
 
@@ -58,7 +113,7 @@ Instance viewpoint_cap_ty: Viewpoint ecap ty ty := {
   adapt_viewpoint a b := match b with
   | ty_name n (ecap_cap c) =>
       c' <- a ▷ c;
-      Some (ty_name n (ecap_cap c'))
+      Some (ty_name n c')
   | ty_name n (ecap_iso_eph) => None
   | ty_null => Some (ty_null)
   end
@@ -77,17 +132,25 @@ Instance extract_viewpoint_cap_ty: ExtractViewpoint ecap ty ty := {
 Instance alias_cap : Alias ecap := {
   alias a := match a with
   | cap_iso_eph => cap_iso
+  | cap_trn_eph => cap_trn
   | cap_iso => cap_tag
+  | cap_trn => cap_box
   | cap_ref => cap_ref
+  | cap_val => cap_val
+  | cap_box => cap_box
   | cap_tag => cap_tag
   end
 }.
 
 Instance unalias_cap : Unalias ecap := {
   unalias a := match a with
-  | cap_iso_eph => cap_iso
+  | cap_iso_eph => cap_iso_eph
+  | cap_trn_eph => cap_trn_eph
   | cap_iso => cap_iso_eph
+  | cap_trn => cap_trn_eph
   | cap_ref => cap_ref
+  | cap_val => cap_val
+  | cap_box => cap_box
   | cap_tag => cap_tag
   end
 }.

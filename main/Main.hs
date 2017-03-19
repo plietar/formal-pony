@@ -9,6 +9,7 @@ import System.Environment (getArgs)
 import qualified Text.ParserCombinators.Parsec as Parsec
 
 import qualified Parser
+import Sugar (desugar)
 import Extracted (Program, Expr(..), Expr_hole(..), Heap, Value(..), Local_id(..), Frame, Ty(..), Cap(..), Ty_ctx)
 import Extracted (Nmap, Pmap, Stringmap, list_expr_uncoerce)
 import qualified Extracted
@@ -33,7 +34,7 @@ multiline = liftIO (multiline' [])
 
 load :: String -> Repl ()
 load contents = do
-  prog <- parser Parser.prog contents
+  prog <- desugar <$> parser Parser.prog contents
   case Extracted.wf_program prog of
     Just () -> return ()
     Nothing -> throwError "invalid program"

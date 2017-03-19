@@ -10,10 +10,28 @@ Require Import common.
 
 Definition subtype_cap (sub super: ecap) := 
   match sub, super with
-  | cap_iso_eph, _ => Some ()
+  | cap_iso_eph, cap_iso_eph => Some ()
   | cap_iso, cap_iso => Some ()
+  | cap_trn_eph, cap_trn_eph => Some ()
+  | cap_trn, cap_trn => Some ()
   | cap_ref, cap_ref => Some ()
+  | cap_val, cap_val => Some ()
+  | cap_box, cap_box => Some ()
+  | cap_tag, cap_tag => Some ()
+
+  | cap_iso_eph, _ => Some ()
+
+  | cap_trn_eph, cap_trn => Some ()
+  | cap_trn_eph, cap_ref => Some ()
+  | cap_trn_eph, cap_val => Some ()
+  | cap_trn_eph, cap_box => Some ()
+
+  | cap_trn, cap_box => Some ()
+  | cap_ref, cap_box => Some ()
+  | cap_val, cap_box => Some ()
+
   | _, cap_tag => Some ()
+
   | _, _ => None
   end.
 
