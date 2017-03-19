@@ -181,3 +181,144 @@ Definition lookup_Md (ds n: string) : option (ty * list (string * ty) * ty) :=
   end.
 
 End lookup.
+
+Instance program_size : Size program :=
+  fun P => let '(nt, st, ct, at_) := P in length nt + length st + length ct + length at_.
+
+Instance program_elem_of : ElemOf string program :=
+  fun ds P =>
+    let '(nts, sts, cts, ats) := P in
+    (∃ x, (ds, x) ∈ nts) ∨ (∃ x, (ds, x) ∈ sts) ∨ (∃ x, (ds, x) ∈ cts) ∨ (∃ x, (ds, x) ∈ ats).
+
+Lemma list_tuple_lookup_not_elem {B}: forall (l: list (string*B)) (k: string),
+  list_tuple_lookup k l = None -> forall (v: B), not (elem_of (k, v) l).
+intros.
+induction l.
+apply not_elem_of_nil.
+destruct a.
+unfold list_tuple_lookup in H.
+destruct (string_dec k s).
+inversion H.
+fold (list_tuple_lookup k l) in H.
+apply not_elem_of_cons.
+auto with *.
+Qed.
+
+Lemma list_tuple_lookup_elem {B}: forall (l: list (string*B)) (k: string) (v: B),
+  elem_of (k, v) l -> (exists v', list_tuple_lookup k l = Some v').
+intros.
+induction l.
+- contradict H. apply not_elem_of_nil.
+- destruct a as [k0 v0].
+  unfold list_tuple_lookup.
+  destruct (elem_of_cons l (k,v) (k0,v0)).
+  destruct (string_dec k k0).
+  + exists v0. auto.
+  + fold (list_tuple_lookup k l).
+    apply IHl.
+    destruct (H0 H).
+    * auto with *.
+    * exact H2.
+Qed.
+
+Lemma list_tuple_lookup_elem' {B}: forall (l: list (string*B)) (k: string) (v: B),
+  list_tuple_lookup k l = Some v -> elem_of (k, v) l.
+Proof.
+intros.
+induction l.
+- unfold list_tuple_lookup in H.
+  inversion H.
+
+- unfold list_tuple_lookup in H.
+  destruct a as [k0 v0].
+  destruct (string_dec k k0).
+  + inversion H.
+    destruct (elem_of_cons l (k,v) (k0,v0)).
+    assert ((k,v)=(k0,v0)).
+    auto with *.
+    rewrite <- H1. rewrite e.
+    rewrite <- H1 in H2. rewrite e in H2.
+    auto with *.
+  + fold (list_tuple_lookup k l) in H.
+    destruct (elem_of_cons l (k,v) (k0,v0)).
+    apply H1.
+    right.
+    apply IHl.
+    exact H.
+Admitted.
+
+Lemma lookup_P_is_some_elem_of1 : forall P ds,
+  ds ∈ P -> is_Some (lookup_P P ds).
+Proof.
+intros.
+destruct P as [[[nts sts] cts] ats].
+unfold elem_of, program_elem_of in H.
+unfold is_Some, lookup_P.
+
+destruct  (nts !! ds) as [x|] eqn:?.
+destruct x as [[[ks ms] bs] is].
+exists (inr (ks,ms,bs,is)).
+auto.
+
+destruct  (sts !! ds) as [x|] eqn:?.
+destruct x as [[[ks ms] bs] is].
+exists (inr (ks,ms,bs,is)).
+auto.
+
+destruct  (cts !! ds) as [x|] eqn:?.
+destruct x as [[[fs ks] ms] is].
+exists (inl (fs,ks,ms,nil,is)).
+auto.
+
+destruct  (ats !! ds) as [x|] eqn:?.
+destruct x as [[[[fs ks] ms] bs] is].
+exists (inl (fs,ks,ms,bs,is)).
+auto.
+
+destruct H as [H|[H|[H|H]]].
+destruct H. contradict H. apply list_tuple_lookup_not_elem. auto.
+destruct H. contradict H. apply list_tuple_lookup_not_elem. auto.
+destruct H. contradict H. apply list_tuple_lookup_not_elem. auto.
+destruct H. contradict H. apply list_tuple_lookup_not_elem. auto.
+Qed.
+
+Lemma lookup_P_is_some_elem_of2 : forall P ds,
+   is_Some (lookup_P P ds) -> ds ∈ P.
+Proof.
+intros.
+destruct P as [[[nts sts] cts] ats].
+unfold is_Some, lookup_P in H.
+unfold elem_of, program_elem_of.
+
+destruct  (nts !! ds) as [x|] eqn:?.
+- destruct x as [[[ks ms] bs] is].
+  left.
+  exists (ks,ms,bs,is).
+  apply list_tuple_lookup_elem'.
+  auto.
+
+- destruct  (sts !! ds) as [x|] eqn:?.
+  + destruct x as [[[ks ms] bs] is].
+    right. left.
+    exists (ks,ms,bs,is).
+    apply list_tuple_lookup_elem'.
+    auto.
+
+  + destruct  (cts !! ds) as [x|] eqn:?.
+    * destruct x as [[[fs ks] ms] is].
+      right. right. left.
+      exists (fs,ks,ms,is).
+      apply list_tuple_lookup_elem'.
+      auto.
+
+    * destruct  (ats !! ds) as [x|] eqn:?.
+      ++ destruct x as [[[[fs ks] ms] bs] is].
+         right. right. right.
+         exists (fs,ks,ms,bs,is).
+         apply list_tuple_lookup_elem'.
+         auto.
+
+      ++ destruct H.
+         inversion H.
+
+Qed.

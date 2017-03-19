@@ -1,6 +1,7 @@
 Require Import ch2o.prelude.nmap.
 Require Import ch2o.prelude.base.
 Require Import Coq.Strings.String.
+Require Import Coq.Init.Peano.
 
 Notation "m >>= f" := (mbind f m) (at level 60, right associativity) : C_scope.
 Notation "( m >>=)" := (λ f, mbind f m) (only parsing) : C_scope.
@@ -78,3 +79,33 @@ Fixpoint concatMapM {A B: Type} {M: Type -> Type} {r: MRet M} {b: MBind M} (f: A
 
 Definition trace {A B: Type} (_: A) (x: B) := x.
 Definition traceId {A: Type} (x: A) := x.
+
+Lemma pair_eq_dec' {A B: Type} `{forall x y : A, Decision (x=y)} `{forall x y : B, Decision (x=y)} : forall x y : (A*B), {x = y} + {x <> y}.
+Proof.
+intros.
+destruct x as [x0 x1].
+destruct y as [y0 y1].
+destruct (decide (x0=y0)).
+destruct (decide (x1=y1)).
+auto with *.
+auto with *.
+destruct (decide (x1=y1)).
+auto with *.
+auto with *.
+Qed.
+
+Instance pair_eq_dec {A B: Type} `{∀ x y : A, Decision (x=y)} `{∀ x y : B, Decision (x=y)} :
+  ∀ x y : A*B, Decision (x=y) := pair_eq_dec'.
+
+Instance collection_cross_size {X Y: Type} `{Size X} `{Size Y}: Size (X*Y) :=
+  fun xy => let (x,y) := xy in (size x * size y).
+
+Instance collection_cross_elem {X Y Xs Ys: Type} `{ElemOf X Xs} `{ElemOf Y Ys}: ElemOf (X*Y) (Xs*Ys) :=
+  fun xy xys =>
+  let '((x,y), (xs, ys)) := (xy, xys) in x ∈ xs ∧ y ∈ ys.
+
+Instance list_size {X: Type} : Size (list X) :=
+  fun xs => Datatypes.length xs.
+
+Definition string_beq a b := if string_dec a b then true else false.
+

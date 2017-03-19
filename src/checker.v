@@ -1,9 +1,12 @@
 Require Import Ast.
 Require Import ch2o.prelude.stringmap.
 Require Import ch2o.prelude.base.
+Require Import ch2o.prelude.list.
 Require Import Coq.Strings.String.
+Require Import Coq.Lists.List.
 Require Import Coq.Bool.Sumbool.
 Require Import common.
+Require Import subtyping.
 Open Scope string_scope.
 
 Definition ty_ctx := stringmap ty.
@@ -16,8 +19,6 @@ Notation "a ▶ b" := (extract_viewpoint a b) (at level 60, right associativity)
 
 Class Alias (A: Type) := alias: A -> A.
 Class Unalias (A: Type) := unalias: A -> A.
-
-Class Subtype (A: Type) := is_subtype: A -> A -> bool.
 
 Instance viewpoint_cap: Viewpoint ecap cap cap := {
   adapt_viewpoint a b := match a, b with
@@ -105,50 +106,14 @@ Instance unalias_ty : Unalias ty := {
   end
 }.
 
-Instance subtype_cap : Subtype ecap := {
-  is_subtype sub super :=
-    match sub, super with
-    | cap_iso_eph, _ => true
-    | cap_iso, cap_iso => true
-    | cap_ref, cap_ref => true
-    | _, cap_tag => true
-    | _, _ => false
-    end
-}.
-
-Definition string_beq a b := if string_dec a b then true else false.
-
 Section checker.
 Context (P: program).
-
-Fixpoint is_subclass (maxdepth: nat) (sub super: string) : bool :=
-  trace (sub, super) $
-  if string_beq sub super
-  then true else
-  match maxdepth, lookup_Is P sub with
-  | S maxdepth', Some is => existsb (λ n, is_subclass maxdepth' n super) is
-  | O, _ => false
-  | _, None => false
-  end.
-
-Instance subtype_ty : Subtype ty := {
-  is_subtype sub super :=
-    match sub, super with
-    | ty_name name_sub cap_sub, ty_name name_super cap_super =>
-        if is_subclass 100 name_sub name_super
-        then is_subtype cap_sub cap_super
-        else false
-    | ty_null, _ => true
-    | _, ty_null => false
-    end
-}.
 
 Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
   let ck_alias (e: expr) (expected: ty) : option unit :=
     ety <- ck_expr Γ e;
-    if is_subtype ety (unalias expected)
-    then Some ()
-    else None in
+    subtype P ety (unalias expected)
+  in
 
   match e with
   | expr_null => Some ty_null
@@ -207,9 +172,8 @@ with
   ck_args (Γ: ty_ctx) (es: list_expr) (args: list ty) : option unit :=
     let ck_alias (e: expr) (expected: ty) : option unit :=
       ety <- ck_expr Γ e;
-      if is_subtype ety (unalias expected)
-      then Some ()
-      else None in
+      subtype P ety (unalias expected)
+    in
 
     match es, args with
     | list_expr_nil, nil => Some ()
@@ -223,9 +187,7 @@ with
 Definition wf_method (name: string) (receiver: ty) (args_ty: list (string * ty)) (ret_ty: ty) (body: expr) : option unit :=
   let Γ : ty_ctx := map_of_list (("this", receiver)::args_ty) in
   body_ty <- ck_expr Γ body;
-  if is_subtype body_ty ret_ty
-  then Some ()
-  else None.
+  subtype P body_ty ret_ty.
 
 Definition wf_ctor (ds: string) (kt: ctor) : option unit :=
   let '(k, (args_ty, body)) := kt in
