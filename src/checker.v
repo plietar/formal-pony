@@ -112,7 +112,7 @@ Context (P: program).
 Fixpoint ck_expr (Γ: ty_ctx) (e: expr) : option ty :=
   let ck_alias (e: expr) (expected: ty) : option unit :=
     ety <- ck_expr Γ e;
-    subtype P ety (unalias expected)
+    subtype_ty P ety (unalias expected)
   in
 
   match e with
@@ -172,7 +172,7 @@ with
   ck_args (Γ: ty_ctx) (es: list_expr) (args: list ty) : option unit :=
     let ck_alias (e: expr) (expected: ty) : option unit :=
       ety <- ck_expr Γ e;
-      subtype P ety (unalias expected)
+      subtype_ty P ety (unalias expected)
     in
 
     match es, args with
@@ -187,7 +187,7 @@ with
 Definition wf_method (name: string) (receiver: ty) (args_ty: list (string * ty)) (ret_ty: ty) (body: expr) : option unit :=
   let Γ : ty_ctx := map_of_list (("this", receiver)::args_ty) in
   body_ty <- ck_expr Γ body;
-  subtype P body_ty ret_ty.
+  subtype_ty P body_ty ret_ty.
 
 Definition wf_ctor (ds: string) (kt: ctor) : option unit :=
   let '(k, (args_ty, body)) := kt in
